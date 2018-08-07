@@ -73,6 +73,8 @@ struct shader_module {
     // A mapping of <id> to the first word of its def. this is useful because walking type
     // trees, constant expressions, etc requires jumping all over the instruction stream.
     std::unordered_map<unsigned, unsigned> def_index;
+    // A vector of all the decorations (including group decorations) in the spirv image that have been normalized
+    std::vector<std::vector<uint32_t>> decorations;
     bool has_valid_spirv;
     VkShaderModule vk_shader_module;
 
@@ -82,6 +84,7 @@ struct shader_module {
           has_valid_spirv(true),
           vk_shader_module(shaderModule) {
         BuildDefIndex();
+        CollectAndNormalizeDecorations();
     }
 
     shader_module() : has_valid_spirv(false), vk_shader_module(VK_NULL_HANDLE) {}
@@ -102,6 +105,7 @@ struct shader_module {
     }
 
     void BuildDefIndex();
+    void CollectAndNormalizeDecorations();
 };
 
 class ValidationCache {

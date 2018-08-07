@@ -130,6 +130,47 @@ void shader_module::BuildDefIndex() {
     }
 }
 
+void shader_module::CollectAndNormalizeDecorations() {
+    std::vector<std::vector<uint32_t>> decoration_groups;
+
+    for (auto insn : *this) {
+        if (insn.opcode() == spv::OpDecorate) {
+            std::vector<uint32_t> new_decoration(insn.it, insn.it + insn.len());
+            decorations.push_back(new_decoration);
+        } else if (insn.opcode() == spv::OpDecorationGroup) {
+            uint32_t group_id = insn.word(1);  // Decoration group ID
+            // Search through all decorations, moving decorations matching this ID into decoration_groups structure
+            auto dec = decorations.begin();
+            while (dec != decorations.end()) {
+                if ((*dec)[1] == group_id) {
+                    // Copy data to decoration_groups
+                    std::vector<uint32_t> group_member((*dec).begin(), (*dec).begin() + dec->size());
+                    decoration_groups.push_back(group_member);
+                    // Remove copied entry from decorations
+                    dec = decorations.erase(dec);
+                } else {
+                    dec++;
+                }
+            }
+        } else if (insn.opcode() == spv::OpGroupDecorate) {
+            // For target ID in this instruction, copy all decorations matching group ID in decoration_groups into decorations
+            //  array, replacing group id with target ID.
+            uint32_t group_id = insn.word(1);
+            uint32_t replacements = insn.len() - 2;
+            for (auto group_def : decoration_groups) {
+                if (group_def[1] == group_id) {
+                    for (uint32_t i = 0; i < (insn.len() - 2); i++) {
+                        uint32_t replacement = insn.word(i + 2);
+                        std::vector<uint32_t> new_decoration(group_def.begin(), group_def.begin() + group_def.size());
+                        new_decoration[1] = replacement;
+                        decorations.push_back(new_decoration);
+                    }
+                }
+            }
+        }
+    }
+}
+
 static spirv_inst_iter FindEntrypoint(shader_module const *src, char const *name, VkShaderStageFlagBits stageBits) {
     for (auto insn : *src) {
         if (insn.opcode() == spv::OpEntryPoint) {
@@ -684,6 +725,8 @@ static std::vector<std::pair<descriptor_slot_t, interface_var>> CollectInterface
     std::unordered_map<unsigned, unsigned> var_sets;
     std::unordered_map<unsigned, unsigned> var_bindings;
     std::unordered_map<unsigned, unsigned> var_nonwritable;
+    uint32_t OGD = 0;
+    uint32_t ODG = 0;
 
     for (auto insn : *src) {
         // All variables in the Uniform or UniformConstant storage classes are required to be decorated with both
@@ -700,6 +743,10 @@ static std::vector<std::pair<descriptor_slot_t, interface_var>> CollectInterface
             if (insn.word(2) == spv::DecorationNonWritable) {
                 var_nonwritable[insn.word(1)] = 1;
             }
+        } else if (insn.opcode() == spv::OpDecorationGroup) {
+            ODG++;
+        } else if (insn.opcode() == spv::OpGroupDecorate) {
+            OGD++;
         }
     }
 
@@ -1734,6 +1781,15 @@ bool PreCallValidateCreateShaderModule(layer_data *dev_data, VkShaderModuleCreat
         spv_diagnostic diag = nullptr;
 
         spv_valid = spvValidate(ctx, &binary, &diag);
+        char outputtext[16384];
+        spv_text_t outinfodata;
+        outinfodata.str = outputtext;
+        outinfodata.length = 16384;
+        spv_text outinfo = &outinfodata;
+        spv_diagnostic sdiag = {};
+        uint32_t options = 0b01001000;
+
+        spvBinaryToText(ctx, binary.code, binary.wordCount, options, &outinfo, &sdiag);
         if (spv_valid != SPV_SUCCESS) {
             if (!have_glsl_shader || (pCreateInfo->pCode[0] == spv::MagicNumber)) {
                 skip |=
