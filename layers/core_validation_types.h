@@ -1172,6 +1172,7 @@ std::unordered_map<ImageSubresourcePair, IMAGE_LAYOUT_NODE> const *GetImageLayou
 std::unordered_map<VkBuffer, std::unique_ptr<BUFFER_STATE>> *GetBufferMap(layer_data *device_data);
 std::unordered_map<VkBufferView, std::unique_ptr<BUFFER_VIEW_STATE>> *GetBufferViewMap(layer_data *device_data);
 std::unordered_map<VkImageView, std::unique_ptr<IMAGE_VIEW_STATE>> *GetImageViewMap(layer_data *device_data);
+std::unordered_map<VkSamplerYcbcrConversion, uint64_t> *GetExternalFormatMap(core_validation::layer_data *device_data);
 const DeviceExtensions *GetDeviceExtensions(const layer_data *);
 uint32_t GetApiVersion(const layer_data *);
 

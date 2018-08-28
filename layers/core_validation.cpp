@@ -193,6 +193,7 @@ struct layer_data {
     unordered_map<VkShaderModule, unique_ptr<shader_module>> shaderModuleMap;
     unordered_map<VkDescriptorUpdateTemplateKHR, unique_ptr<TEMPLATE_STATE>> desc_template_map;
     unordered_map<VkSwapchainKHR, std::unique_ptr<SWAPCHAIN_NODE>> swapchainMap;
+    unordered_map<VkSamplerYcbcrConversion, uint64_t> android_hw_buf_ext_format_map;
     GlobalQFOTransferBarrierMap<VkImageMemoryBarrier> qfo_release_image_barrier_map;
     GlobalQFOTransferBarrierMap<VkBufferMemoryBarrier> qfo_release_buffer_barrier_map;
 
@@ -399,6 +400,11 @@ static BINDABLE *GetObjectMemBinding(layer_data *dev_data, uint64_t handle, Vulk
     }
     return nullptr;
 }
+
+std::unordered_map<VkSamplerYcbcrConversion, uint64_t> *GetExternalFormatMap(core_validation::layer_data *device_data) {
+    return &device_data->android_hw_buf_ext_format_map;
+}
+
 // prototype
 GLOBAL_CB_NODE *GetCBNode(layer_data const *, const VkCommandBuffer);
 
@@ -14162,6 +14168,66 @@ VKAPI_ATTR void VKAPI_CALL CmdDrawMeshTasksIndirectCountNV(VkCommandBuffer comma
     }
 }
 
+static void PostCallRecordCreateSamplerYcbcrConversion(layer_data *dev_data, VkSamplerYcbcrConversionCreateInfo *create_info,
+                                                       VkSamplerYcbcrConversion ycbcr_conversion) {
+#ifdef VK_USE_PLATFORM_ANDROID_KHR
+    if (GetDeviceExtensions(dev_data)->vk_android_external_memory_android_hardware_buffer) {
+        const VkExternalFormatANDROID *ext_format_android = lvl_find_in_chain<VkExternalFormatANDROID>(create_info->pNext);
+        if (ext_format_android) {
+            dev_data->android_hw_buf_ext_format_map.emplace(ycbcr_conversion, ext_format_android->externalFormat);
+        }
+    }
+#endif
+};
+
+static void PostCallRecordDestroySamplerYcbcrConversion(layer_data *dev_data, VkSamplerYcbcrConversion ycbcr_conversion) {
+#ifdef VK_USE_PLATFORM_ANDROID_KHR
+    if (GetDeviceExtensions(dev_data)->vk_android_external_memory_android_hardware_buffer) {
+        dev_data->android_hw_buf_ext_format_map.erase(ycbcr_conversion);
+    }
+#endif
+};
+
+VKAPI_ATTR VkResult VKAPI_CALL CreateSamplerYcbcrConversion(VkDevice device, VkSamplerYcbcrConversionCreateInfo *pCreateInfo,
+                                                            const VkAllocationCallbacks *pAllocator,
+                                                            VkSamplerYcbcrConversion *pYcbcrConversion) {
+    layer_data *dev_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    VkResult result = dev_data->dispatch_table.CreateSamplerYcbcrConversion(device, pCreateInfo, pAllocator, pYcbcrConversion);
+    unique_lock_t lock(global_lock);
+    PostCallRecordCreateSamplerYcbcrConversion(dev_data, pCreateInfo, *pYcbcrConversion);
+    lock.unlock();
+    return result;
+};
+
+VKAPI_ATTR VkResult VKAPI_CALL CreateSamplerYcbcrConversionKHR(VkDevice device, VkSamplerYcbcrConversionCreateInfo *pCreateInfo,
+                                                               const VkAllocationCallbacks *pAllocator,
+                                                               VkSamplerYcbcrConversion *pYcbcrConversion) {
+    layer_data *dev_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    VkResult result = dev_data->dispatch_table.CreateSamplerYcbcrConversionKHR(device, pCreateInfo, pAllocator, pYcbcrConversion);
+    unique_lock_t lock(global_lock);
+    PostCallRecordCreateSamplerYcbcrConversion(dev_data, pCreateInfo, *pYcbcrConversion);
+    lock.unlock();
+    return result;
+};
+
+VKAPI_ATTR void VKAPI_CALL DestroySamplerYcbcrConversion(VkDevice device, VkSamplerYcbcrConversion ycbcrConversion,
+                                                         const VkAllocationCallbacks *pAllocator) {
+    layer_data *dev_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    dev_data->dispatch_table.DestroySamplerYcbcrConversion(device, ycbcrConversion, pAllocator);
+    unique_lock_t lock(global_lock);
+    PostCallRecordDestroySamplerYcbcrConversion(dev_data, ycbcrConversion);
+    lock.unlock();
+};
+
+VKAPI_ATTR void VKAPI_CALL DestroySamplerYcbcrConversionKHR(VkDevice device, VkSamplerYcbcrConversion ycbcrConversion,
+                                                            const VkAllocationCallbacks *pAllocator) {
+    layer_data *dev_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    dev_data->dispatch_table.DestroySamplerYcbcrConversionKHR(device, ycbcrConversion, pAllocator);
+    unique_lock_t lock(global_lock);
+    PostCallRecordDestroySamplerYcbcrConversion(dev_data, ycbcrConversion);
+    lock.unlock();
+};
+
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetDeviceProcAddr(VkDevice device, const char *funcName);
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetPhysicalDeviceProcAddr(VkInstance instance, const char *funcName);
 VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetInstanceProcAddr(VkInstance instance, const char *funcName);
@@ -14329,6 +14395,10 @@ static const std::unordered_map<std::string, void *> name_to_funcptr_map = {
     {"vkQueueBindSparse", (void *)QueueBindSparse},
     {"vkCreateSemaphore", (void *)CreateSemaphore},
     {"vkCreateEvent", (void *)CreateEvent},
+    {"vkCreateSamplerYcbcrConversion", (void *)CreateSamplerYcbcrConversion},
+    {"vkCreateSamplerYcbcrConversionKHR", (void *)CreateSamplerYcbcrConversionKHR},
+    {"vkDestroySamplerYcbcrConversion", (void *)DestroySamplerYcbcrConversion},
+    {"vkDestroySamplerYcbcrConversionKHR", (void *)DestroySamplerYcbcrConversionKHR},
 #ifdef VK_USE_PLATFORM_ANDROID_KHR
     {"vkCreateAndroidSurfaceKHR", (void *)CreateAndroidSurfaceKHR},
 #endif
