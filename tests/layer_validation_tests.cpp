@@ -24255,6 +24255,175 @@ TEST_F(VkLayerTest, SetDynViewportParamMultiviewportTests) {
     m_errorMonitor->VerifyFound();
 }
 
+#ifdef VK_USE_PLATFORM_ANDROID_KHR_123
+TEST_F(VkLayerTest, AndroidHardwareBufferImageViewErrors) {
+    TEST_DESCRIPTION(
+        "Attempt to create an ImageView on an external Android Hardware Buffer image, with a variety of errors in the "
+        "VkImageViewCreateInfo chain.");
+
+    std::vector<const char *> inst_extensions = {VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+                                                 VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME};
+                                                 // VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME
+                                                 // VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME
+    std::vector<const char *> dev_extensions =  {VK_ANDROID_EXTERNAL_MEMORY_ANDROID_HARDWARE_BUFFER_EXTENSION_NAME,
+                                                 VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME,
+                                                 VK_KHR_BIND_MEMORY_2_EXTENSION_NAME,
+                                                 VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
+                                                 VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME,
+                                                 VK_KHR_MAINTENANCE1_EXTENSION_NAME,
+                                                 VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME};
+
+    for (auto inst_ext : inst_extensions) {
+        if (InstanceExtensionSupported(inst_ext)) {
+            m_instance_extension_names.push_back(inst_ext);
+        } else {
+            printf("%s Required instance extension VK_KHR_get_physical_device_properties2 or "
+                   "VK_KHR_external_memory_capabilities not supported -- skipping test\n", kSkipPrefix);
+            return;
+        }
+    }
+    ASSERT_NO_FATAL_FAILURE(InitFramework(myDbgFunc, m_errorMonitor));
+
+    for (auto dev_ext : inst_extensions) {
+        if (InstanceExtensionSupported(dev_ext)) {
+            m_instance_extension_names.push_back(dev_ext);
+        } else {
+            printf("%s Required device extension VK_KHR_sampler_ycbcr_conversion or "
+                   "VK_ANDROID_external_memory_android_hardware_buffer "
+                   "(or their prerequisites) not supported -- skipping test\n", kSkipPrefix);
+            return;
+        }
+    }
+    ASSERT_NO_FATAL_FAILURE(InitState());
+
+    // Create a YCbCr conversion obj with a chained external format
+    VkExternalFormatANDROID ext_fmt = {};
+    ext_fmt.sType = VK_STRUCTURE_TYPE_EXTERNAL_FORMAT_ANDROID;
+    ext_fmt.externalFormat = 0xDEADBEEF;
+
+    VkSamplerYcbcrConversionCreateInfo ycci = {};
+    ycci.sType = VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_CREATE_INFO;
+    ycci.pNext = &ext_fmt;  // chain external format
+    ycci.format = VK_FORMAT_UNDEFINED;
+    ycci.ycbcrModel = VK_SAMPLER_YCBCR_MODEL_CONVERSION_YCBCR_IDENTITY;
+    ycci.ycbcrRange = VK_SAMPLER_YCBCR_RANGE_ITU_FULL;
+    ycci.xChromaOffset = VK_CHROMA_LOCATION_COSITED_EVEN;
+    ycci.yChromaOffset = VK_CHROMA_LOCATION_MIDPOINT;
+    ycci.chromaFilter = VK_FILTER_NEAREST;
+    ycci.forceExplicitReconstruction = VK_FALSE;
+
+    VkSamplerYcbcrConversion ycbcr_conversion = VK_NULL_HANDLE;
+    vkCreateSamplerYcbcrConversion(m_device->device(), &ycci, NULL, &ycbcr_conversion);
+
+    // Create a target image
+    VkExternalMemoryImageCreateInfo emici = {};
+    emici.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+    emici.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID;
+    emici.pNext = &ext_fmt;
+
+    VkFormat view_formats[] = { VK_FORMAT_UNDEFINED, VK_FORMAT_R8G8B8A8_UNORM };
+    VkImageFormatListCreateInfoKHR iflci = {};
+    iflci.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO_KHR;
+    iflci.viewFormatCount = 2;
+    iflci.pViewFormats = view_formats;
+    iflci.pNext = &emici;
+
+    VkImageCreateInfo ici = {};
+    ici.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    ici.pNext = &iflci;
+    ici.format = VK_FORMAT_UNDEFINED;
+    ici.extent = {1024, 1024, 1};
+    ici.imageType = VK_IMAGE_TYPE_2D;
+    ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    ici.arrayLayers = 1;
+    ici.mipLevels = 1;
+    ici.samples = VK_SAMPLE_COUNT_1_BIT;
+    ici.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ici.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+    ici.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+    VkImage image;
+    vkCreateImage(m_device->device(), &ici, NULL, &image);
+
+    // Bind external android_hw_buffer memory to image
+    AHardwareBuffer * external_memory_block = (AHardwareBuffer *) new (uint32_t[1024 * 1024]);
+
+    VkImportAndroidHardwareBufferInfoANDROID iahbi = {};
+    iahbi.sType = VK_STRUCTURE_TYPE_IMPORT_ANDROID_HARDWARE_BUFFER_INFO_ANDROID;
+    iahbi.buffer = external_memory_block;
+
+    VkMemoryAllocateInfo mai = {};
+    mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    mai.allocationSize = 1024 * 1024 * 4;
+    mai.memoryTypeIndex = 0; ??
+
+
+    // Create an image view with errors
+    VkImageViewCreateInfo ivci = {};
+    ivci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    ivci.image = image;
+    ivci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    ivci.format = VK_FORMAT_UNDEFINED;
+    ivci.subresourceRange.baseMipLevel = 0;
+    ivci.subresourceRange.levelCount = 1;
+    ivci.subresourceRange.layerCount = 1;
+    ivci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+
+    // Link conversion info and external format structs into the image view create pNext chain
+    VkSamplerYcbcrConversionInfo sci = {};
+    sci.sType = VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO;
+    sci.conversion = ycbcr_conversion;
+    sci.pNext = &ext_fmt;
+    ivci.pNext = &sci;
+
+    VkImageView view = VK_NULL_HANDLE;
+
+    // No error sanity check
+    m_errorMonitor->ExpectSuccess();
+    vkCreateImageView(m_device->device(), &ivci, NULL, &view);
+    m_errorMonitor->VerifyNotFound();
+    if (view) vkDestroyImageView(m_device->device(), view, NULL);
+    view = VK_NULL_HANDLE;
+
+    ivci.format = VK_FORMAT_R8G8B8A8_UNORM;
+    m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkImageViewCreateInfo-image-01896");
+    vkCreateImageView(m_device->device(), &ivci, NULL, &view);
+    m_errorMonitor->VerifyFound();
+    if (view) vkDestroyImageView(m_device->device(), view, NULL);
+    view = VK_NULL_HANDLE;
+
+    ivci.format = VK_FORMAT_UNDEFINED;
+    ivci.components.r = VK_COMPONENT_SWIZZLE_R;
+     m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkImageViewCreateInfo-image-01896");
+     vkCreateImageView(m_device->device(), &ivci, NULL, &view);
+     m_errorMonitor->VerifyFound();
+     if (view) vkDestroyImageView(m_device->device(), view, NULL);
+     view = VK_NULL_HANDLE;
+
+     ivci.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+     ext_fmt.externalFormat = 1234;
+      m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkImageViewCreateInfo-image-01896");
+     vkCreateImageView(m_device->device(), &ivci, NULL, &view);
+     m_errorMonitor->VerifyFound();
+     if (view) vkDestroyImageView(m_device->device(), view, NULL);
+     view = VK_NULL_HANDLE;
+
+    // m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkImageViewCreateInfo-image-01896");
+    // vkCreateImageView(m_device->device(), &ivci, NULL, &view);
+    // m_errorMonitor->VerifyFound();
+    // if (view) vkDestroyImageView(m_device->device(), view, NULL);
+    // view = VK_NULL_HANDLE;
+
+    // m_errorMonitor->SetDesiredFailureMsg(VK_DEBUG_REPORT_ERROR_BIT_EXT, "VUID-VkImageViewCreateInfo-image-01896");
+    // vkCreateImageView(m_device->device(), &ivci, NULL, &view);
+    // m_errorMonitor->VerifyFound();
+    // if (view) vkDestroyImageView(m_device->device(), view, NULL);
+    // view = VK_NULL_HANDLE;
+
+    if (ycbcr_conversion) vkDestroySamplerYcbcrConversion(m_device->device(), ycbcr_conversion, NULL);
+    //if (image) vkDestroyImage(m_device->device(), image, NULL);
+}
+#endif  // VK_USE_PLATFORM_ANDROID_KHR
+
 //
 // POSITIVE VALIDATION TESTS
 //
