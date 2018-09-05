@@ -24,6 +24,7 @@
 
 #include <sstream>
 #include <string>
+#include <cmath>
 
 #include "vk_enum_string_helper.h"
 #include "vk_layer_data.h"
@@ -1002,17 +1003,118 @@ void TransitionFinalSubpassLayouts(layer_data *device_data, GLOBAL_CB_NODE *pCB,
     }
 }
 
+// ImageCreateInfo checks done only when external_memory_android_hardware_buffer extension is enabled
+bool AndroidHWBufferCreateImageChecks(layer_data *device_data, const debug_report_data *report_data,
+                                      const VkImageCreateInfo *create_info, bool format_error) {
+    bool skip = false;
+
+#ifdef VK_USE_PLATFORM_ANDROID_KHR
+    const VkExternalFormatANDROID *ext_fmt_android = lvl_find_in_chain<VkExternalFormatANDROID>(create_info->pNext);
+
+    if (format_error) {
+        return log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                       "VUID-VkImageCreateInfo-pNext-01889",
+                       "vkCreateImage: The combination of format, type, tiling, usage and flags supplied in the VkImageCreateInfo "
+                       "struct is reported by vkGetPhysicalDeviceImageFormatProperties() as unsupported.");
+    }
+
+    const VkExternalMemoryImageCreateInfo *emici = lvl_find_in_chain<VkExternalMemoryImageCreateInfo>(create_info->pNext);
+    if (emici && (emici->handleTypes & VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID)) {
+        bool failed_01892 = true;  // Assume failure
+        do {                       // once-through only, breaking out means we've detected the failure
+            if (create_info->imageType != VK_IMAGE_TYPE_2D) break;
+
+            uint32_t max_dim = std::max({create_info->extent.height, create_info->extent.width, create_info->extent.depth});
+            uint32_t full_mip_depth = 1 + (uint32_t)log2(max_dim);  // floor() is implicit in the cast
+            if ((create_info->mipLevels != 1) && (create_info->mipLevels != full_mip_depth)) break;
+
+            if (create_info->format == VK_FORMAT_UNDEFINED) {
+                if (nullptr == ext_fmt_android) break;
+                if (0 == ext_fmt_android->externalFormat) break;
+            } else {
+                // Inputs
+                VkPhysicalDeviceExternalImageFormatInfo eifi = {};
+                eifi.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO;
+                eifi.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID;
+                VkPhysicalDeviceImageFormatInfo2 info = {};
+                info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2_KHR;
+                info.pNext = &eifi;  // chain the external format info
+                info.format = create_info->format;
+                info.type = create_info->imageType;
+                info.tiling = create_info->tiling;
+                info.usage = create_info->usage;
+                info.flags = create_info->flags;
+                // Outputs
+                VkExternalImageFormatProperties eifp = {};
+                eifp.sType = VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES;
+                VkImageFormatProperties2 props = {};
+                props.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
+                props.pNext = &eifp;  // chain the external image properties
+                if (VK_SUCCESS != GetImageFormatProperties2(device_data, &info, &props)) break;
+            }
+            failed_01892 = false;  // If we reach here, no error found
+        } while (false);
+        if (failed_01892) {
+            skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                            "VUID-VkImageCreateInfo-pNext-01892",
+                            "vkCreateImage: VkImageCreateInfo struct contains values incompatible with the chained "
+                            "VkExternalMemoryImageCreateInfo struct.");
+        }
+    }  // End 01892 check
+
+    if (ext_fmt_android && 0 != ext_fmt_android->externalFormat) {
+        if ((VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT & create_info->flags) || (~VK_IMAGE_USAGE_SAMPLED_BIT & create_info->usage) ||
+            (VK_IMAGE_TILING_OPTIMAL != create_info->tiling)) {
+            skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                            "VUID-VkImageCreateInfo-pNext-01893",
+                            "vkCreateImage: Illegal flags, usage or tiling specified in VkImageCreateInfo struct with a chained "
+                            "VkExternalFormatANDROID struct whose external format is non-zero.");
+        }
+    }
+
+    // Note that VU 01974 is a strict sub-set of 01893 above. (Spec issue #1379)
+    if (ext_fmt_android && (0 != ext_fmt_android->externalFormat)) {
+        if (VK_FORMAT_UNDEFINED != create_info->format) {
+            skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                            "VUID-VkImageCreateInfo-pNext-01974",
+                            "vkCreateImage: VkImageCreateInfo struct has a chained VkExternalFormatANDROID struct with non-zero "
+                            "external format, but the VkImageCreateInfo's format is not VK_FORMAT_UNDEFINED.");
+        }
+    } else {
+        if (VK_FORMAT_UNDEFINED == create_info->format) {
+            skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                            "VUID-VkImageCreateInfo-pNext-01975",
+                            "vkCreateImage: VkImageCreateInfo struct's format is VK_FORMAT_UNDEFINED, but either does not have a "
+                            "chained VkExternalFormatANDROID struct or the struct exists but has an external format of 0.");
+        }
+    }
+#endif
+
+    return skip;
+}
+
 bool PreCallValidateCreateImage(layer_data *device_data, const VkImageCreateInfo *pCreateInfo,
                                 const VkAllocationCallbacks *pAllocator, VkImage *pImage) {
     bool skip = false;
     const debug_report_data *report_data = core_validation::GetReportData(device_data);
+    VkImageFormatProperties format_limits;
+    bool gpdifp_error = (VK_SUCCESS != GetImageFormatProperties(device_data, pCreateInfo, &format_limits));
 
-    if (pCreateInfo->format == VK_FORMAT_UNDEFINED) {
-        skip |=
-            log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                    "VUID-VkImageCreateInfo-format-00943", "vkCreateImage: VkFormat for image must not be VK_FORMAT_UNDEFINED.");
-
-        return skip;
+    if (GetDeviceExtensions(device_data)->vk_android_external_memory_android_hardware_buffer) {
+        skip |= AndroidHWBufferCreateImageChecks(device_data, report_data, pCreateInfo, gpdifp_error);
+        if (gpdifp_error) return skip;
+    } else {  // These checks are omitted or replaced when Android HW Buffer extension is active
+        if (pCreateInfo->format == VK_FORMAT_UNDEFINED) {
+            return log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                           "VUID-VkImageCreateInfo-format-00943",
+                           "vkCreateImage: VkFormat for image must not be VK_FORMAT_UNDEFINED.");
+        }
+        if (gpdifp_error) {
+            return log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                           "VUID-VkImageCreateInfo-format-00940",
+                           "vkCreateImage: The combination of format, type, tiling, usage and flags supplied in the "
+                           "VkImageCreateInfo struct is reported by vkGetPhysicalDeviceImageFormatProperties() as unsupported.");
+        }
     }
 
     const char *format_string = string_VkFormat(pCreateInfo->format);
@@ -1025,17 +1127,6 @@ bool PreCallValidateCreateImage(layer_data *device_data, const VkImageCreateInfo
     }
 
     const VkPhysicalDeviceLimits *device_limits = &(GetPhysicalDeviceProperties(device_data)->limits);
-    VkImageFormatProperties format_limits;  // Format limits may exceed general device limits
-    VkResult err = GetImageFormatProperties(device_data, pCreateInfo, &format_limits);
-    if (VK_SUCCESS != err) {
-        std::stringstream ss;
-        ss << "vkCreateImage: The combination of format, type, tiling, usage and flags supplied in the VkImageCreateInfo struct is "
-              "reported by vkGetPhysicalDeviceImageFormatProperties() as unsupported";
-        skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
-                        "VUID-VkImageCreateInfo-format-00940", "%s.", ss.str().c_str());
-        return skip;
-    }
-
     if ((VK_IMAGE_TYPE_1D == pCreateInfo->imageType) &&
         (pCreateInfo->extent.width > std::max(device_limits->maxImageDimension1D, format_limits.maxExtent.width))) {
         std::stringstream ss;

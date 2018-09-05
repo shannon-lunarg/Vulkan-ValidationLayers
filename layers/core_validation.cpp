@@ -4851,6 +4851,16 @@ VkResult GetImageFormatProperties(core_validation::layer_data *device_data, cons
         pImageFormatProperties);
 }
 
+VkResult GetImageFormatProperties2(core_validation::layer_data *device_data,
+                                   const VkPhysicalDeviceImageFormatInfo2 *phys_dev_image_fmt_info,
+                                   VkImageFormatProperties2 *pImageFormatProperties) {
+    if (!device_data->instance_data->extensions.vk_khr_get_physical_device_properties_2) return VK_ERROR_EXTENSION_NOT_PRESENT;
+    instance_layer_data *instance_data =
+        GetLayerDataPtr(get_dispatch_key(device_data->instance_data->instance), instance_layer_data_map);
+    return instance_data->dispatch_table.GetPhysicalDeviceImageFormatProperties2(device_data->physical_device,
+                                                                                 phys_dev_image_fmt_info, pImageFormatProperties);
+}
+
 const debug_report_data *GetReportData(const core_validation::layer_data *device_data) { return device_data->report_data; }
 
 const VkPhysicalDeviceProperties *GetPhysicalDeviceProperties(const core_validation::layer_data *device_data) {
