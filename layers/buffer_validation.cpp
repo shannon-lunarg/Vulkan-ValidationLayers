@@ -1003,21 +1003,22 @@ void TransitionFinalSubpassLayouts(layer_data *device_data, GLOBAL_CB_NODE *pCB,
     }
 }
 
-// ImageCreateInfo checks done only when external_memory_android_hardware_buffer extension is enabled
-bool AndroidHWBufferCreateImageChecks(layer_data *device_data, const debug_report_data *report_data,
-                                      const VkImageCreateInfo *create_info, bool format_error) {
+#ifdef VK_USE_PLATFORM_ANDROID_KHR
+// Android-specific validation that uses types defined only with VK_USE_PLATFORM_ANDROID_KHR
+// This could also move into a seperate core_validation_android.cpp file... ?
+
+bool PreCallValidateCreateImageANDROID(layer_data *device_data, const debug_report_data *report_data,
+                                       const VkImageCreateInfo *create_info, bool unknown_format) {
     bool skip = false;
 
-#ifdef VK_USE_PLATFORM_ANDROID_KHR
-    const VkExternalFormatANDROID *ext_fmt_android = lvl_find_in_chain<VkExternalFormatANDROID>(create_info->pNext);
-
-    if (format_error) {
+    if (unknown_format) {
         return log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
                        "VUID-VkImageCreateInfo-pNext-01889",
                        "vkCreateImage: The combination of format, type, tiling, usage and flags supplied in the VkImageCreateInfo "
                        "struct is reported by vkGetPhysicalDeviceImageFormatProperties() as unsupported.");
     }
 
+    const VkExternalFormatANDROID *ext_fmt_android = lvl_find_in_chain<VkExternalFormatANDROID>(create_info->pNext);
     const VkExternalMemoryImageCreateInfo *emici = lvl_find_in_chain<VkExternalMemoryImageCreateInfo>(create_info->pNext);
     if (emici && (emici->handleTypes & VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID)) {
         bool failed_01892 = true;  // Assume failure
@@ -1088,28 +1089,36 @@ bool AndroidHWBufferCreateImageChecks(layer_data *device_data, const debug_repor
                             "chained VkExternalFormatANDROID struct or the struct exists but has an external format of 0.");
         }
     }
-#endif
 
     return skip;
 }
+
+#else
+
+bool PreCallValidateCreateImageANDROID(layer_data *device_data, const debug_report_data *report_data,
+                                       const VkImageCreateInfo *create_info, bool unknown_format) {
+    return false;
+}
+
+#endif  // VK_USE_PLATFORM_ANDROID_KHR
 
 bool PreCallValidateCreateImage(layer_data *device_data, const VkImageCreateInfo *pCreateInfo,
                                 const VkAllocationCallbacks *pAllocator, VkImage *pImage) {
     bool skip = false;
     const debug_report_data *report_data = core_validation::GetReportData(device_data);
     VkImageFormatProperties format_limits;
-    bool gpdifp_error = (VK_SUCCESS != GetImageFormatProperties(device_data, pCreateInfo, &format_limits));
+    bool unknown_format = (VK_SUCCESS != GetImageFormatProperties(device_data, pCreateInfo, &format_limits));
 
     if (GetDeviceExtensions(device_data)->vk_android_external_memory_android_hardware_buffer) {
-        skip |= AndroidHWBufferCreateImageChecks(device_data, report_data, pCreateInfo, gpdifp_error);
-        if (gpdifp_error) return skip;
+        skip |= PreCallValidateCreateImageANDROID(device_data, report_data, pCreateInfo, unknown_format);
+        if (unknown_format) return skip;
     } else {  // These checks are omitted or replaced when Android HW Buffer extension is active
         if (pCreateInfo->format == VK_FORMAT_UNDEFINED) {
             return log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
                            "VUID-VkImageCreateInfo-format-00943",
                            "vkCreateImage: VkFormat for image must not be VK_FORMAT_UNDEFINED.");
         }
-        if (gpdifp_error) {
+        if (unknown_format) {
             return log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
                            "VUID-VkImageCreateInfo-format-00940",
                            "vkCreateImage: The combination of format, type, tiling, usage and flags supplied in the "
@@ -4008,7 +4017,6 @@ bool PreCallValidateCreateImageView(layer_data *device_data, const VkImageViewCr
                 break;
         }
 
-#ifdef VK_USE_PLATFORM_ANDROID_KHR
         // External format checks needed when VK_ANDROID_external_memory_android_hardware_buffer enabled
         if (GetDeviceExtensions(device_data)->vk_android_external_memory_android_hardware_buffer) {
             const VkExternalFormatANDROID *ext_format_android = lvl_find_in_chain<VkExternalFormatANDROID>(create_info->pNext);
@@ -4052,7 +4060,6 @@ bool PreCallValidateCreateImageView(layer_data *device_data, const VkImageViewCr
                 }
             }
         }
-#endif
 
         VkFormatProperties format_properties = GetFormatProperties(device_data, view_format);
         bool check_tiling_features = false;
