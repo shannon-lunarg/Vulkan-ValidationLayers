@@ -39,62 +39,6 @@
 #include <list>
 #include <deque>
 
-//#ifndef VK_USE_PLATFORM_ANDROID_KHR
-//// These types are elsewhere protected by #ifdef VK_USE_PLATFORM_ANDROID_KHR, so are not universally visible
-//// However, they need to be identified in the pNext chains of some core API entry points
-//// Including these "dummy" definitions here avoids much #ifdef-ing within the validation code
-//
-//typedef struct AHardwareBuffer AHardwareBuffer;
-//
-//typedef struct VkExternalFormatANDROID {
-//    VkStructureType sType;
-//    void *pNext;
-//    uint64_t externalFormat;
-//} VkExternalFormatANDROID;
-//
-//typedef struct VkImportAndroidHardwareBufferInfoANDROID {
-//    VkStructureType            sType;
-//    const void*                pNext;
-//    struct AHardwareBuffer*    buffer;
-//} VkImportAndroidHardwareBufferInfoANDROID;
-//
-//typedef struct VkAndroidHardwareBufferUsageANDROID {
-//    VkStructureType    sType;
-//    void*              pNext;
-//    uint64_t           androidHardwareBufferUsage;
-//} VkAndroidHardwareBufferUsageANDROID;
-//
-//typedef struct VkAndroidHardwareBufferPropertiesANDROID {
-//    VkStructureType    sType;
-//    void*              pNext;
-//    VkDeviceSize       allocationSize;
-//    uint32_t           memoryTypeBits;
-//} VkAndroidHardwareBufferPropertiesANDROID;
-//
-//typedef struct VkAndroidHardwareBufferFormatPropertiesANDROID {
-//    VkStructureType                  sType;
-//    void*                            pNext;
-//    VkFormat                         format;
-//    uint64_t                         externalFormat;
-//    VkFormatFeatureFlags             formatFeatures;
-//    VkComponentMapping               samplerYcbcrConversionComponents;
-//    VkSamplerYcbcrModelConversion    suggestedYcbcrModel;
-//    VkSamplerYcbcrRange              suggestedYcbcrRange;
-//    VkChromaLocation                 suggestedXChromaOffset;
-//    VkChromaLocation                 suggestedYChromaOffset;
-//} VkAndroidHardwareBufferFormatPropertiesANDROID;
-//
-//template <>
-//struct LvlTypeMap<VkExternalFormatANDROID> {
-//    static const VkStructureType kSType = VK_STRUCTURE_TYPE_EXTERNAL_FORMAT_ANDROID;
-//};
-//
-//template <>
-//struct LvlSTypeMap<VK_STRUCTURE_TYPE_EXTERNAL_FORMAT_ANDROID> {
-//    typedef VkExternalFormatANDROID Type;
-//};
-//#endif  // VK_USE_PLATFORM_ANDROID_KHR "dummies"
-
 /*
  * MTMTODO : Update this comment
  * Data Structure overview
@@ -223,10 +167,3 @@ struct SURFACE_STATE {
     SURFACE_STATE() {}
     SURFACE_STATE(VkSurfaceKHR surface) : surface(surface) {}
 };
-
-// Selected prototypes
-//namespace core_validation {
-//VkFormatProperties GetFormatProperties(const core_validation::layer_data *, const VkFormat );
-//VkResult GetImageFormatProperties(core_validation::layer_data *, const VkImageCreateInfo *, VkImageFormatProperties *);
-//VkResult GetImageFormatProperties2(core_validation::layer_data *, const VkPhysicalDeviceImageFormatInfo2 *, VkImageFormatProperties2 *);
-//}

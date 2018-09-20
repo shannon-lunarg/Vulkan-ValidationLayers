@@ -1,7 +1,7 @@
-/* Copyright (c) 2015-2016 The Khronos Group Inc.
- * Copyright (c) 2015-2016 Valve Corporation
- * Copyright (c) 2015-2016 LunarG, Inc.
- * Copyright (C) 2015-2016 Google Inc.
+/* Copyright (c) 2015-2018 The Khronos Group Inc.
+ * Copyright (c) 2015-2018 Valve Corporation
+ * Copyright (c) 2015-2018 LunarG, Inc.
+ * Copyright (C) 2015-2018 Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@
  * Author: Tobin Ehlis <tobine@google.com>
  * Author: Chris Forbes <chrisf@ijw.co.nz>
  * Author: Mark Lobodzinski <mark@lunarg.com>
+ * Author: Dave Houlton <daveh@lunarg.com>
  */
 #ifndef CORE_VALIDATION_TYPES_H_
 #define CORE_VALIDATION_TYPES_H_
@@ -1102,6 +1103,7 @@ struct DeviceFeatures {
     VkPhysicalDeviceInlineUniformBlockFeaturesEXT inline_uniform_block;
 };
 
+#ifdef VK_USE_PLATFORM_ANDROID_KHR
 // Enumerations of format and usage flags for Android opaque external memory blobs
 typedef enum AHardwareBufferFormat {
     AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM = 1,
@@ -1130,11 +1132,11 @@ typedef enum AHardwareBufferUsage {
 
 /* NDK definitions
 Native Activity
-#include <hardware_buffer.h> 
-#include <native_activity.h> 
-#include <native_window.h> 
-#include <native_window_jni.h> 
-#include <rect.h> 
+#include <hardware_buffer.h>
+#include <native_activity.h>
+#include <native_window.h>
+#include <native_window_jni.h>
+#include <rect.h>
 #include <window.h>
 Summary
 Enumerations
@@ -1192,6 +1194,7 @@ Anonymous Enum 16{
   AHARDWAREBUFFER_USAGE_VENDOR_18 = 1ULL << 62,
   AHARDWAREBUFFER_USAGE_VENDOR_19 = 1ULL << 63
 }*/
+#endif // VK_USE_PLATFORM_ANDROID_KHR
 
 
 // Fwd declarations of layer_data and helpers to look-up/validate state from layer_data maps
@@ -1264,7 +1267,7 @@ std::unordered_map<ImageSubresourcePair, IMAGE_LAYOUT_NODE> const *GetImageLayou
 std::unordered_map<VkBuffer, std::unique_ptr<BUFFER_STATE>> *GetBufferMap(layer_data *device_data);
 std::unordered_map<VkBufferView, std::unique_ptr<BUFFER_VIEW_STATE>> *GetBufferViewMap(layer_data *device_data);
 std::unordered_map<VkImageView, std::unique_ptr<IMAGE_VIEW_STATE>> *GetImageViewMap(layer_data *device_data);
-std::unordered_map<VkSamplerYcbcrConversion, uint64_t> *GetExternalFormatMap(core_validation::layer_data *device_data);
+std::unordered_map<VkSamplerYcbcrConversion, uint64_t> *GetYcbcrConversionFormatMap(core_validation::layer_data *device_data);
 const DeviceExtensions *GetDeviceExtensions(const layer_data *);
 uint32_t GetApiVersion(const layer_data *);
 

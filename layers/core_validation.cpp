@@ -192,7 +192,7 @@ struct layer_data {
     unordered_map<VkShaderModule, unique_ptr<shader_module>> shaderModuleMap;
     unordered_map<VkDescriptorUpdateTemplateKHR, unique_ptr<TEMPLATE_STATE>> desc_template_map;
     unordered_map<VkSwapchainKHR, std::unique_ptr<SWAPCHAIN_NODE>> swapchainMap;
-    unordered_map<VkSamplerYcbcrConversion, uint64_t> android_hw_buf_ext_format_map;
+    unordered_map<VkSamplerYcbcrConversion, uint64_t> ycbcr_conversion_ahb_fmt_map;
     GlobalQFOTransferBarrierMap<VkImageMemoryBarrier> qfo_release_image_barrier_map;
     GlobalQFOTransferBarrierMap<VkBufferMemoryBarrier> qfo_release_buffer_barrier_map;
 
@@ -400,8 +400,8 @@ static BINDABLE *GetObjectMemBinding(layer_data *dev_data, uint64_t handle, Vulk
     return nullptr;
 }
 
-std::unordered_map<VkSamplerYcbcrConversion, uint64_t> *GetExternalFormatMap(core_validation::layer_data *device_data) {
-    return &device_data->android_hw_buf_ext_format_map;
+std::unordered_map<VkSamplerYcbcrConversion, uint64_t> *GetYcbcrConversionFormatMap(core_validation::layer_data *device_data) {
+    return &device_data->ycbcr_conversion_ahb_fmt_map;
 }
 
 // prototype
@@ -3214,26 +3214,32 @@ static bool PreCallValidateAllocateMemoryANDROID(layer_data *dev_data, const VkM
     auto exp_mem_alloc_info = lvl_find_in_chain<VkExportMemoryAllocateInfo>(alloc_info->pNext);
     auto mem_ded_alloc_info = lvl_find_in_chain<VkMemoryDedicatedAllocateInfo>(alloc_info->pNext);
     if ((import_ahb_info) && (NULL != import_ahb_info->buffer)) {
-        // Having a chained ImportAHBInfo struct implies an import with handleType of
-        // VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID
+        // This is an import with handleType of VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID
+        VkAndroidHardwareBufferFormatPropertiesANDROID ahb_format_props = {
+            VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_FORMAT_PROPERTIES_ANDROID, NULL};
+        VkAndroidHardwareBufferPropertiesANDROID ahb_props = {VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID,
+                                                              &ahb_format_props};
+        bool props_lookup_ok =
+            (VK_SUCCESS == GetAndroidHardwareBufferPropertiesANDROID(dev_data->device, import_ahb_info->buffer, &ahb_props));
+
         bool failed_01873 = true;
         do {
-            VkAndroidHardwareBufferPropertiesANDROID props = {VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID, NULL};
-            VkAndroidHardwareBufferFormatPropertiesANDROID format_props = {
-                VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_FORMAT_PROPERTIES_ANDROID, NULL};
-            props.pNext = &format_props;
-            if (VK_SUCCESS != GetAndroidHardwareBufferPropertiesANDROID(dev_data->device, import_ahb_info->buffer, &props)) break;
-            if (alloc_info->allocationSize != props.allocationSize) break;
+            // allocationSize must be the size returned by vkGetAndroidHardwareBufferPropertiesANDROID
+            // for the Android hardware buffer
+            if (!props_lookup_ok) break;
+            if (alloc_info->allocationSize != ahb_props.allocationSize) break;
 
-            // TODO: this is an extrapolation of what the vague valid usage statement *could* mean (clarification requested)
-            // "memoryTypeIndex must be one of those returned by vkGetAndroidHardwareBufferPropertiesANDROID for the Android
-            // hardware buffer"
-            if (alloc_info->memoryTypeIndex >= dev_data->phys_dev_mem_props.memoryTypeCount) break;
-            VkMemoryType phys_mem_type = dev_data->phys_dev_mem_props.memoryTypes[alloc_info->memoryTypeIndex];
-            if (0 == (alloc_info->memoryTypeIndex & props.memoryTypeBits)) break;
+            // memoryTypeIndex must be one of those returned by vkGetAndroidHardwareBufferPropertiesANDROID
+            // for the Android hardware buffer
+            if (alloc_info->memoryTypeIndex >= 32) break;
+            uint32_t mem_type_bitmask = 1 << alloc_info->memoryTypeIndex;
+            if (0 == (mem_type_bitmask & ahb_props.memoryTypeBits)) break;
 
+            // If the pNext chain does not contain an instance of VkMemoryDedicatedAllocateInfo or
+            // VkMemoryDedicatedAllocateInfo::image is VK_NULL_HANDLE, the Android hardware buffer must have a format
+            // of AHARDWAREBUFFER_FORMAT_BLOB and a usage that includes AHARDWAREBUFFER_USAGE_GPU_DATA_BUFFER
             if (!mem_ded_alloc_info || (VK_NULL_HANDLE == mem_ded_alloc_info->image)) {
-                if (AHARDWAREBUFFER_FORMAT_BLOB != format_props.format) break;
+                if (AHARDWAREBUFFER_FORMAT_BLOB != ahb_format_props.format) break;
 
                 VkPhysicalDeviceExternalImageFormatInfo pdeifi = {
                     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO, NULL,
@@ -3243,7 +3249,8 @@ static bool PreCallValidateAllocateMemoryANDROID(layer_data *dev_data, const VkM
                 VkAndroidHardwareBufferUsageANDROID ahbua = {VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_USAGE_ANDROID, NULL};
                 VkImageFormatProperties2 ifp2 = {VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2, &ahbua};
 
-                // TODO: This probably doesn't work, because we don't know how to populate the PhysDevImageFmtInfo2 struct
+                // TODO: Verify this works, uncertain because we don't have all data needed to populate the PhysDevImageFmtInfo2
+                // struct
                 if (VK_SUCCESS != GetImageFormatProperties2(dev_data, &pdifi2, &ifp2)) break;
                 if (0 == (ahbua.androidHardwareBufferUsage & AHARDWAREBUFFER_USAGE_GPU_DATA_BUFFER)) break;
             }
@@ -3255,6 +3262,56 @@ static bool PreCallValidateAllocateMemoryANDROID(layer_data *dev_data, const VkM
                             "vkAllocateMemory: VkMemoryAllocateInfo struct with chained VkImportAndroidHardwareBufferInfoANDROID "
                             "struct contains a conflicting size, memoryType, format, or usage.");
         }
+
+        if ((mem_ded_alloc_info) && (VK_NULL_HANDLE != mem_ded_alloc_info->image)) {
+            // This is an import with a dedicated allocation requirement
+            bool failed_01875 = true;
+            do {
+                // The Android hardware buffer’s usage must include at least one of AHARDWAREBUFFER_USAGE_GPU_COLOR_OUTPUT or
+                // AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE
+                VkPhysicalDeviceExternalImageFormatInfo pdeifi = {
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO, NULL,
+                    VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID};
+                VkPhysicalDeviceImageFormatInfo2 pdifi2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2,
+                                                           &pdeifi};  // , ? , ? , ? , ? , ? };
+                VkAndroidHardwareBufferUsageANDROID ahbua = {VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_USAGE_ANDROID, NULL};
+                VkImageFormatProperties2 ifp2 = {VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2, &ahbua};
+                // TODO: Verify this works, uncertain because we don't have all data needed to populate the PhysDevImageFmtInfo2
+                // struct
+                if (VK_SUCCESS != GetImageFormatProperties2(dev_data, &pdifi2, &ifp2)) break;
+                if (0 == (ahbua.androidHardwareBufferUsage &
+                          (AHARDWAREBUFFER_USAGE_GPU_COLOR_OUTPUT | AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE)))
+                    break;
+
+                // The format of image must be VK_FORMAT_UNDEFINED or the format returned by
+                // vkGetAndroidHardwareBufferPropertiesANDROID in VkAndroidHardwareBufferFormatPropertiesANDROID::format for the
+                // Android hardware buffer.
+                if (!props_lookup_ok) break;
+                if ((pdifi2.format != ahb_format_props.format) && (VK_FORMAT_UNDEFINED != pdifi2.format)) break;
+
+                // The width, height, and array layer dimensions of image and the Android hardwarebuffer must be identical
+                // TODO TBD
+
+                // If the Android hardware buffer’s usage includes AHARDWAREBUFFER_USAGE_GPU_MIPMAP_COMPLETE, the image must
+                // have log2 (max(width, height)) + 1 mip levels, otherwise it must have exactly 1 mip level.
+                // TODO TBD
+
+                // Each bit set in the usage of image must be listed in AHardwareBuffer Usage Equivalence, and if there is a
+                // corresponding AHARDWAREBUFFER_USAGE bit listed that bit must be included in the Android hardware buffer’s
+                // usage
+                // TODO TBD
+
+                failed_01875 = false;  // No 01875 error
+            } while (false);
+            if (failed_01875) {
+                skip |=
+                    log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT,
+                            HandleToUint64(dev_data->device), "VUID-VkMemoryAllocateInfo-pNext-01875",
+                            "vkAllocateMemory: VkMemoryAllocateInfo struct with chained VkImportAndroidHardwareBufferInfoANDROID "
+                            "and VkMemoryDedicatedAllocateInfo structs, with conflicts.");
+            }
+        }
+
     } else {
         if ((exp_mem_alloc_info) && (mem_ded_alloc_info) &&
             (0 != (VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID & exp_mem_alloc_info->handleTypes)) &&
@@ -3301,12 +3358,12 @@ static void PostCallRecordCreateSamplerYcbcrConversionANDROID(layer_data *dev_da
                                                               VkSamplerYcbcrConversion ycbcr_conversion) {
     const VkExternalFormatANDROID *ext_format_android = lvl_find_in_chain<VkExternalFormatANDROID>(create_info->pNext);
     if (ext_format_android) {
-        dev_data->android_hw_buf_ext_format_map.emplace(ycbcr_conversion, ext_format_android->externalFormat);
+        dev_data->ycbcr_conversion_ahb_fmt_map.emplace(ycbcr_conversion, ext_format_android->externalFormat);
     }
 };
 
 static void PostCallRecordDestroySamplerYcbcrConversionANDROID(layer_data *dev_data, VkSamplerYcbcrConversion ycbcr_conversion) {
-    dev_data->android_hw_buf_ext_format_map.erase(ycbcr_conversion);
+    dev_data->ycbcr_conversion_ahb_fmt_map.erase(ycbcr_conversion);
 };
 
 #else
@@ -3331,13 +3388,15 @@ static bool PreCallValidateAllocateMemory(layer_data *dev_data, const VkMemoryAl
                         dev_data->phys_dev_properties.properties.limits.maxMemoryAllocationCount);
     }
 
-    skip |= PreCallValidateAllocateMemoryANDROID(dev_data, alloc_info);
-
-    if (!(GetDeviceExtensions(dev_data)->vk_android_external_memory_android_hardware_buffer) && (0 == alloc_info->allocationSize)) {
-        skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT,
-                        HandleToUint64(dev_data->device), "VUID-VkMemoryAllocateInfo-allocationSize-00638",
-                        "vkAllocateMemory: allocationSize is 0.");
-    };
+    if (GetDeviceExtensions(dev_data)->vk_android_external_memory_android_hardware_buffer) {
+        skip |= PreCallValidateAllocateMemoryANDROID(dev_data, alloc_info);
+    } else {
+        if (0 == alloc_info->allocationSize) {
+            skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT,
+                            HandleToUint64(dev_data->device), "VUID-VkMemoryAllocateInfo-allocationSize-00638",
+                            "vkAllocateMemory: allocationSize is 0.");
+        };
+    }
     // TODO: VUIDs ending in 00643, 00644, 00646, 00647, 01742, 01743, 01745, 00645, 00648, 01744
 
     return skip;
@@ -3933,14 +3992,13 @@ static bool RangesIntersect(layer_data const *dev_data, MEMORY_RANGE const *rang
         const char *r2_linear_str = range2->linear ? "linear" : "non-linear";
         const char *r2_type_str = range2->image ? "image" : "buffer";
         auto obj_type = range1->image ? VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT : VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT;
-        *skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_WARNING_BIT_EXT, obj_type, range1->handle,
-                         kVUID_Core_MemTrack_InvalidAliasing,
-                         "%s %s 0x%" PRIx64 " is aliased with %s %s 0x%" PRIx64
-                         " which may indicate a bug. For further info refer to the Buffer-Image Granularity section of the Vulkan "
-                         "specification. "
-                         "(https://www.khronos.org/registry/vulkan/specs/1.0-extensions/xhtml/"
-                         "vkspec.html#resources-bufferimagegranularity)",
-                         r1_linear_str, r1_type_str, range1->handle, r2_linear_str, r2_type_str, range2->handle);
+        *skip |= log_msg(
+            dev_data->report_data, VK_DEBUG_REPORT_WARNING_BIT_EXT, obj_type, range1->handle, kVUID_Core_MemTrack_InvalidAliasing,
+            "%s %s 0x%" PRIx64 " is aliased with %s %s 0x%" PRIx64
+            " which may indicate a bug. For further info refer to the Buffer-Image Granularity section of the Vulkan "
+            "specification. "
+            "(https://www.khronos.org/registry/vulkan/specs/1.0-extensions/xhtml/vkspec.html#resources-bufferimagegranularity)",
+            r1_linear_str, r1_type_str, range1->handle, r2_linear_str, r2_type_str, range2->handle);
     }
     // Ranges intersect
     return true;
