@@ -22,9 +22,10 @@
 // Allow use of STL min and max functions in Windows
 #define NOMINMAX
 
+#include <cmath>
+#include <set>
 #include <sstream>
 #include <string>
-#include <cmath>
 
 #include "vk_enum_string_helper.h"
 #include "vk_layer_data.h"
@@ -1019,6 +1020,16 @@ bool PreCallValidateCreateImageANDROID(layer_data *device_data, const debug_repo
     }
 
     const VkExternalFormatANDROID *ext_fmt_android = lvl_find_in_chain<VkExternalFormatANDROID>(create_info->pNext);
+    if (ext_fmt_android) {
+        auto ahb_formats = GetAHBExternalFormatsSet(device_data);
+        if ((0 != ext_fmt_android->externalFormat) && (0 == ahb_formats->count(ext_fmt_android->externalFormat))) {
+            skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                            "VUID-VkExternalFormatANDROID-externalFormat-01894",
+                            "vkCreateImage: Chained VkExternalFormatANDROID struct contains a non-zero externalFormat which has "
+                            "not been previously retrieved by vkGetAndroidHardwareBufferPropertiesANDROID().");
+        }
+    }
+
     const VkExternalMemoryImageCreateInfo *emici = lvl_find_in_chain<VkExternalMemoryImageCreateInfo>(create_info->pNext);
     if (emici && (emici->handleTypes & VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID)) {
         bool failed_01892 = true;  // Assume failure

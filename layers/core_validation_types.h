@@ -33,13 +33,14 @@
 #include "vk_extension_helper.h"
 #include <atomic>
 #include <functional>
+#include <list>
 #include <map>
+#include <memory>
+#include <set>
 #include <string.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
-#include <memory>
-#include <list>
 
 // Fwd declarations -- including descriptor_set.h creates an ugly include loop
 namespace cvdescriptorset {
@@ -1104,6 +1105,7 @@ struct DeviceFeatures {
 };
 
 #ifdef VK_USE_PLATFORM_ANDROID_KHR
+
 // Enumerations of format and usage flags for Android opaque external memory blobs
 typedef enum AHardwareBufferFormat {
     AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM = 1,
@@ -1194,8 +1196,7 @@ Anonymous Enum 16{
   AHARDWAREBUFFER_USAGE_VENDOR_18 = 1ULL << 62,
   AHARDWAREBUFFER_USAGE_VENDOR_19 = 1ULL << 63
 }*/
-#endif // VK_USE_PLATFORM_ANDROID_KHR
-
+#endif  // VK_USE_PLATFORM_ANDROID_KHR
 
 // Fwd declarations of layer_data and helpers to look-up/validate state from layer_data maps
 namespace core_validation {
@@ -1267,7 +1268,9 @@ std::unordered_map<ImageSubresourcePair, IMAGE_LAYOUT_NODE> const *GetImageLayou
 std::unordered_map<VkBuffer, std::unique_ptr<BUFFER_STATE>> *GetBufferMap(layer_data *device_data);
 std::unordered_map<VkBufferView, std::unique_ptr<BUFFER_VIEW_STATE>> *GetBufferViewMap(layer_data *device_data);
 std::unordered_map<VkImageView, std::unique_ptr<IMAGE_VIEW_STATE>> *GetImageViewMap(layer_data *device_data);
-std::unordered_map<VkSamplerYcbcrConversion, uint64_t> *GetYcbcrConversionFormatMap(core_validation::layer_data *device_data);
+std::unordered_map<VkSamplerYcbcrConversion, uint64_t> *GetYcbcrConversionFormatMap(core_validation::layer_data *);
+std::unordered_set<uint64_t> *GetAHBExternalFormatsSet(core_validation::layer_data *);
+
 const DeviceExtensions *GetDeviceExtensions(const layer_data *);
 uint32_t GetApiVersion(const layer_data *);
 
