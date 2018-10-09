@@ -435,6 +435,11 @@ static void AddMemObjInfo(layer_data *dev_data, void *object, const VkDeviceMemo
         mem_info->dedicated_buffer = dedicated->buffer;
         mem_info->dedicated_image = dedicated->image;
     }
+    auto export_info = lvl_find_in_chain<VkExportMemoryAllocateInfo>(pAllocateInfo->pNext);
+    if (export_info) {
+        mem_info->is_export = true;
+        mem_info->export_handle_type_flags = export_info->handleTypes;
+    }
 }
 
 // Create binding link between given sampler and command buffer node
@@ -3223,11 +3228,23 @@ VKAPI_ATTR VkResult VKAPI_CALL GetAndroidHardwareBufferPropertiesANDROID(VkDevic
 static bool PreCallValidateGetMemoryAndroidHardwareBuffer(const layer_data *dev_data,
                                                           const VkMemoryGetAndroidHardwareBufferInfoANDROID *pInfo) {
     bool skip = false;
+    unique_lock_t lock(global_lock);
+    DEVICE_MEM_INFO *mem_info = GetMemObjInfo(dev_data, pInfo->memory);
+
+    // VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID must have been included in 
+    // VkExportMemoryAllocateInfoKHR::handleTypes when memory was created.
+    if (!mem_info->is_export ||
+        (0 == (mem_info->export_handle_type_flags & VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID))) {
+        skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT,
+                        HandleToUint64(dev_data->device), "VUID-VkMemoryGetAndroidHardwareBufferInfoANDROID-handleTypes-01882",
+                        "vkGetMemoryAndroidHardwareBufferANDROID: The VkDeviceMemory (0x%" PRIx64
+                        ") was not allocated for export, or the export handleTypes (0x%" PRIx32
+                        ") did not contain VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID.",
+                        HandleToUint64(pInfo->memory), mem_info->export_handle_type_flags);
+    }
 
     // If the pNext chain of the VkMemoryAllocateInfo used to allocate memory included a VkMemoryDedicatedAllocateInfo
     // with non-NULL image member, then that image must already be bound to memory.
-    unique_lock_t lock(global_lock);
-    DEVICE_MEM_INFO *mem_info = GetMemObjInfo(dev_data, pInfo->memory);
     if (mem_info->is_dedicated && (VK_NULL_HANDLE != mem_info->dedicated_image)) {
         auto image_state = GetImageState(dev_data, mem_info->dedicated_image);
         if ((nullptr == image_state) || (0 == (image_state->GetBoundMemory().count(pInfo->memory)))) {

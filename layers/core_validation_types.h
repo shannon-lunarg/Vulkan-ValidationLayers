@@ -357,6 +357,8 @@ struct DEVICE_MEM_INFO : public BASE_NODE {
     bool is_dedicated;
     VkBuffer dedicated_buffer;
     VkImage dedicated_image;
+    bool is_export;
+    VkExternalMemoryHandleTypeFlags export_handle_type_flags;
     std::unordered_set<VK_OBJECT> obj_bindings;               // objects bound to this memory
     std::unordered_map<uint64_t, MEMORY_RANGE> bound_ranges;  // Map of object to its binding range
     // Convenience vectors image/buff handles to speed up iterating over images or buffers independently
@@ -377,6 +379,8 @@ struct DEVICE_MEM_INFO : public BASE_NODE {
           is_dedicated(false),
           dedicated_buffer(VK_NULL_HANDLE),
           dedicated_image(VK_NULL_HANDLE),
+          is_export(false),
+          export_handle_type_flags(0),
           mem_range{},
           shadow_copy_base(0),
           shadow_copy(0),
