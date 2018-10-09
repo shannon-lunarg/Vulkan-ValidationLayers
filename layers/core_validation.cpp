@@ -3220,10 +3220,36 @@ VKAPI_ATTR VkResult VKAPI_CALL GetAndroidHardwareBufferPropertiesANDROID(VkDevic
     return res;
 }
 
+static bool PreCallValidateGetMemoryAndroidHardwareBuffer(const layer_data *dev_data,
+                                                          const VkMemoryGetAndroidHardwareBufferInfoANDROID *pInfo) {
+    bool skip = false;
+
+    // If the pNext chain of the VkMemoryAllocateInfo used to allocate memory included a VkMemoryDedicatedAllocateInfo
+    // with non-NULL image member, then that image must already be bound to memory.
+    unique_lock_t lock(global_lock);
+    DEVICE_MEM_INFO *mem_info = GetMemObjInfo(dev_data, pInfo->memory);
+    if (mem_info->is_dedicated && (VK_NULL_HANDLE != mem_info->dedicated_image)) {
+        auto image_state = GetImageState(dev_data, mem_info->dedicated_image);
+        if ((nullptr == image_state) || (0 == (image_state->GetBoundMemory().count(pInfo->memory)))) {
+            skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT,
+                            HandleToUint64(dev_data->device), "VUID-VkMemoryGetAndroidHardwareBufferInfoANDROID-pNext-01883",
+                            "vkGetMemoryAndroidHardwareBufferANDROID: The VkDeviceMemory (0x%" PRIx64
+                            ") was allocated using a dedicated image (0x%" PRIx64
+                            "), but that image is not bound to the VkDeviceMemory object.",
+                            HandleToUint64(pInfo->memory), HandleToUint64(mem_info->dedicated_image));
+        }
+    }
+
+    return skip;
+}
+
 VKAPI_ATTR VkResult VKAPI_CALL GetMemoryAndroidHardwareBufferANDROID(VkDevice device,
                                                                      const VkMemoryGetAndroidHardwareBufferInfoANDROID *pInfo,
                                                                      struct AHardwareBuffer **pBuffer) {
     layer_data *dev_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    bool skip = PreCallValidateGetMemoryAndroidHardwareBuffer(dev_data, pInfo);
+    if (skip) return VK_ERROR_VALIDATION_FAILED_EXT;
+
     return dev_data->dispatch_table.GetMemoryAndroidHardwareBufferANDROID(device, pInfo, pBuffer);
 }
 
