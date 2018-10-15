@@ -1127,6 +1127,7 @@ typedef enum AHardwareBufferFormat {
     AHARDWAREBUFFER_FORMAT_BLOB = 0x21
 } AHardwareBufferFormat;
 
+
 typedef enum AHardwareBufferUsage {
     AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE = 0x100,
     AHARDWAREBUFFER_USAGE_GPU_COLOR_OUTPUT = 0x200,
@@ -1135,6 +1136,22 @@ typedef enum AHardwareBufferUsage {
     AHARDWAREBUFFER_USAGE_PROTECTED_CONTENT = 0x4000,
     AHARDWAREBUFFER_USAGE_GPU_DATA_BUFFER = 0x1000000
 } AHardwareBufferUsage;
+
+typedef struct AHardwareBuffer_Desc {
+    uint32_t format;  //	   One of AHARDWAREBUFFER_FORMAT_*.
+    uint32_t height;  //	   Height in pixels.
+    uint32_t layers;  //	   Number of images in an image array.
+    uint32_t rfu0;    //	   Initialize to zero, reserved for future use.
+    uint64_t rfu1;    //	   Initialize to zero, reserved for future use.
+    uint32_t stride;  //	   Row stride in pixels, ignored for AHardwareBuffer_allocate()
+    uint64_t usage;   //	   Combination of AHARDWAREBUFFER_USAGE_*.
+    uint32_t width;   //	   Width in pixels.
+} AHardwareBuffer_Desc;
+
+static inline void AndroidNdkAHardwareBufferDescribe(const AHardwareBuffer *buffer, AHardwareBuffer_Desc *outDesc) {
+    // TBD - this should wrap or be replaced by a a call to the NDK's AHardwareBuffer_describe() fxn
+    return;
+}
 
 /* NDK definitions
 Native Activity
@@ -1199,7 +1216,26 @@ Anonymous Enum 16{
   AHARDWAREBUFFER_USAGE_VENDOR_17 = 1ULL << 61,
   AHARDWAREBUFFER_USAGE_VENDOR_18 = 1ULL << 62,
   AHARDWAREBUFFER_USAGE_VENDOR_19 = 1ULL << 63
-}*/
+}
+
+
+AHardwareBuffer_Desc
+#include <hardware_buffer.h>
+Buffer description.
+
+Summary
+Used for allocating new buffers and querying parameters of existing ones.
+
+Public attributes
+format	uint32_t    One of AHARDWAREBUFFER_FORMAT_*.
+height	uint32_t    Height in pixels.
+layers	uint32_t    Number of images in an image array.
+rfu0	uint32_t    Initialize to zero, reserved for future use.
+rfu1	uint64_t    Initialize to zero, reserved for future use.
+stride	uint32_t    Row stride in pixels, ignored for AHardwareBuffer_allocate()
+usage	uint64_t    Combination of AHARDWAREBUFFER_USAGE_*.
+width	uint32_t    Width in pixels.
+*/
 #endif  // VK_USE_PLATFORM_ANDROID_KHR
 
 // Fwd declarations of layer_data and helpers to look-up/validate state from layer_data maps
@@ -1272,8 +1308,8 @@ std::unordered_map<ImageSubresourcePair, IMAGE_LAYOUT_NODE> const *GetImageLayou
 std::unordered_map<VkBuffer, std::unique_ptr<BUFFER_STATE>> *GetBufferMap(layer_data *device_data);
 std::unordered_map<VkBufferView, std::unique_ptr<BUFFER_VIEW_STATE>> *GetBufferViewMap(layer_data *device_data);
 std::unordered_map<VkImageView, std::unique_ptr<IMAGE_VIEW_STATE>> *GetImageViewMap(layer_data *device_data);
-std::unordered_map<VkSamplerYcbcrConversion, uint64_t> *GetYcbcrConversionFormatMap(core_validation::layer_data *);
-std::unordered_set<uint64_t> *GetAHBExternalFormatsSet(core_validation::layer_data *);
+std::unordered_map<VkSamplerYcbcrConversion, uint64_t> *GetYcbcrConversionFormatMap(layer_data *);
+std::unordered_set<uint64_t> *GetAHBExternalFormatsSet(layer_data *);
 
 const DeviceExtensions *GetDeviceExtensions(const layer_data *);
 uint32_t GetApiVersion(const layer_data *);
