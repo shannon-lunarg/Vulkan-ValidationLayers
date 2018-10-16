@@ -1062,7 +1062,7 @@ bool PreCallValidateCreateImageANDROID(layer_data *device_data, const debug_repo
                 VkImageFormatProperties2 props = {};
                 props.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
                 props.pNext = &eifp;  // chain the external image properties
-                if (VK_SUCCESS != GetImageFormatProperties2(device_data, &info, &props)) break;
+                if (VK_SUCCESS != GetPDImageFormatProperties2(device_data, &info, &props)) break;
             }
             failed_01892 = false;  // If we reach here, no error found
         } while (false);
@@ -1190,7 +1190,7 @@ bool PreCallValidateCreateImage(layer_data *device_data, const VkImageCreateInfo
     bool skip = false;
     const debug_report_data *report_data = core_validation::GetReportData(device_data);
     VkImageFormatProperties format_limits;
-    bool unknown_format = (VK_SUCCESS != GetImageFormatProperties(device_data, pCreateInfo, &format_limits));
+    bool unknown_format = (VK_SUCCESS != GetPDImageFormatProperties(device_data, pCreateInfo, &format_limits));
 
     if (GetDeviceExtensions(device_data)->vk_android_external_memory_android_hardware_buffer) {
         skip |= PreCallValidateCreateImageANDROID(device_data, report_data, pCreateInfo, unknown_format);
@@ -3519,7 +3519,7 @@ bool ValidateImageUsageFlags(layer_data *device_data, IMAGE_STATE const *image_s
 
 bool ValidateImageFormatFeatureFlags(layer_data *dev_data, IMAGE_STATE const *image_state, VkFormatFeatureFlags desired,
                                      char const *func_name, const std::string &linear_vuid, const std::string &optimal_vuid) {
-    VkFormatProperties format_properties = GetFormatProperties(dev_data, image_state->createInfo.format);
+    VkFormatProperties format_properties = GetPDFormatProperties(dev_data, image_state->createInfo.format);
     const debug_report_data *report_data = core_validation::GetReportData(dev_data);
     bool skip = false;
     if (image_state->createInfo.tiling == VK_IMAGE_TILING_LINEAR) {
@@ -3631,7 +3631,7 @@ bool ValidateBufferViewBuffer(const layer_data *device_data, const BUFFER_STATE 
                               const VkBufferViewCreateInfo *pCreateInfo) {
     bool skip = false;
     const debug_report_data *report_data = GetReportData(device_data);
-    const VkFormatProperties format_properties = GetFormatProperties(device_data, pCreateInfo->format);
+    const VkFormatProperties format_properties = GetPDFormatProperties(device_data, pCreateInfo->format);
     if ((buffer_state->createInfo.usage & VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT) &&
         !(format_properties.bufferFeatures & VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT)) {
         skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_BUFFER_EXT,
@@ -4109,7 +4109,7 @@ bool PreCallValidateCreateImageView(layer_data *device_data, const VkImageViewCr
             skip |= PreCallValidateCreateImageViewANDROID(device_data, create_info);
         }
 
-        VkFormatProperties format_properties = GetFormatProperties(device_data, view_format);
+        VkFormatProperties format_properties = GetPDFormatProperties(device_data, view_format);
         bool check_tiling_features = false;
         VkFormatFeatureFlags tiling_features = 0;
         std::string linear_error_codes[] = {"VUID-VkImageViewCreateInfo-image-01006", "VUID-VkImageViewCreateInfo-image-01008",

@@ -3349,7 +3349,7 @@ static bool PreCallValidateAllocateMemoryANDROID(layer_data *dev_data, const VkM
         ifp2.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2;
         ifp2.pNext = &eifp;
 
-        VkResult fmt_lookup_result = GetImageFormatProperties2(dev_data, &pdifi2, &ifp2);
+        VkResult fmt_lookup_result = GetPDImageFormatProperties2(dev_data, &pdifi2, &ifp2);
 
         //  (VU 01880) If buffer is not NULL, Android hardware buffers must be supported for import, as reported by
         //  VkExternalImageFormatProperties or VkExternalBufferProperties.
@@ -3488,6 +3488,21 @@ static bool PreCallValidateAllocateMemoryANDROID(layer_data *dev_data, const VkM
     return skip;
 }
 
+bool PreCallValidateGetImageMemoryRequirements2ANDROID(layer_data *dev_data, const VkImage image) {
+    bool skip = false;
+    const debug_report_data *report_data = core_validation::GetReportData(dev_data);
+
+    IMAGE_STATE *image_state = GetImageState(dev_data, image);
+    if (image_state->imported_ahb && (0 == image_state->GetBoundMemory().size())) {
+        skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT, HandleToUint64(image),
+                        "VUID-VkImageMemoryRequirementsInfo2-image-01897",
+                        "vkGetImageMemoryRequirements2: Attempt to query layout from an image created with "
+                        "VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID handleType, which has not yet been "
+                        "bound to memory.");
+    }
+    return skip;
+}
+
 static bool PreCallValidateCreateSamplerYcbcrConversionANDROID(const layer_data *dev_data,
                                                                const VkSamplerYcbcrConversionCreateInfo *create_info) {
     const VkExternalFormatANDROID *ext_format_android = lvl_find_in_chain<VkExternalFormatANDROID>(create_info->pNext);
@@ -3526,6 +3541,7 @@ static bool PreCallValidateCreateSamplerYcbcrConversionANDROID(const layer_data 
                                                                const VkSamplerYcbcrConversionCreateInfo *create_info) {
     return false;
 }
+bool PreCallValidateGetImageMemoryRequirements2ANDROID(layer_data *dev_data, const VkImage image) { return false; }
 static void PostCallRecordCreateSamplerYcbcrConversionANDROID(layer_data *dev_data, VkSamplerYcbcrConversionCreateInfo *create_info,
                                                               VkSamplerYcbcrConversion ycbcr_conversion){};
 static void PostCallRecordDestroySamplerYcbcrConversionANDROID(layer_data *dev_data, VkSamplerYcbcrConversion ycbcr_conversion){};
@@ -4546,6 +4562,14 @@ VKAPI_ATTR void VKAPI_CALL GetBufferMemoryRequirements2KHR(VkDevice device, cons
     PostCallRecordGetBufferMemoryRequirements(dev_data, pInfo->buffer, &pMemoryRequirements->memoryRequirements);
 }
 
+static bool PreCallValidateGetImageMemoryRequirements2(layer_data *dev_data, const VkImageMemoryRequirementsInfo2 *pInfo) {
+    bool skip = false;
+    if (GetDeviceExtensions(dev_data)->vk_android_external_memory_android_hardware_buffer) {
+        skip |= PreCallValidateGetImageMemoryRequirements2ANDROID(dev_data, pInfo->image);
+    }
+    return skip;
+}
+
 static void PostCallRecordGetImageMemoryRequirements(layer_data *dev_data, VkImage image,
                                                      VkMemoryRequirements *pMemoryRequirements) {
     IMAGE_STATE *image_state;
@@ -4565,16 +4589,20 @@ VKAPI_ATTR void VKAPI_CALL GetImageMemoryRequirements(VkDevice device, VkImage i
     PostCallRecordGetImageMemoryRequirements(dev_data, image, pMemoryRequirements);
 }
 
-VKAPI_ATTR void VKAPI_CALL GetImageMemoryRequirements2(VkDevice device, const VkImageMemoryRequirementsInfo2KHR *pInfo,
-                                                       VkMemoryRequirements2KHR *pMemoryRequirements) {
+VKAPI_ATTR void VKAPI_CALL GetImageMemoryRequirements2(VkDevice device, const VkImageMemoryRequirementsInfo2 *pInfo,
+                                                       VkMemoryRequirements2 *pMemoryRequirements) {
     layer_data *dev_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    bool skip = PreCallValidateGetImageMemoryRequirements2(dev_data, pInfo);
+    if (skip) return;
     dev_data->dispatch_table.GetImageMemoryRequirements2(device, pInfo, pMemoryRequirements);
     PostCallRecordGetImageMemoryRequirements(dev_data, pInfo->image, &pMemoryRequirements->memoryRequirements);
 }
 
-VKAPI_ATTR void VKAPI_CALL GetImageMemoryRequirements2KHR(VkDevice device, const VkImageMemoryRequirementsInfo2KHR *pInfo,
-                                                          VkMemoryRequirements2KHR *pMemoryRequirements) {
+VKAPI_ATTR void VKAPI_CALL GetImageMemoryRequirements2KHR(VkDevice device, const VkImageMemoryRequirementsInfo2 *pInfo,
+                                                          VkMemoryRequirements2 *pMemoryRequirements) {
     layer_data *dev_data = GetLayerDataPtr(get_dispatch_key(device), layer_data_map);
+    bool skip = PreCallValidateGetImageMemoryRequirements2(dev_data, pInfo);
+    if (skip) return;
     dev_data->dispatch_table.GetImageMemoryRequirements2KHR(device, pInfo, pMemoryRequirements);
     PostCallRecordGetImageMemoryRequirements(dev_data, pInfo->image, &pMemoryRequirements->memoryRequirements);
 }
@@ -4653,6 +4681,23 @@ VKAPI_ATTR void VKAPI_CALL GetPhysicalDeviceSparseImageFormatProperties(VkPhysic
     instance_layer_data *instance_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), instance_layer_data_map);
     instance_data->dispatch_table.GetPhysicalDeviceSparseImageFormatProperties(physicalDevice, format, type, samples, usage, tiling,
                                                                                pPropertyCount, pProperties);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL GetPhysicalDeviceImageFormatProperties2(VkPhysicalDevice physicalDevice,
+                                                                       const VkPhysicalDeviceImageFormatInfo2 *pImageFormatInfo,
+                                                                       VkImageFormatProperties2 *pImageFormatProperties) {
+    layer_data *dev_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), layer_data_map);
+    instance_layer_data *instance_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), instance_layer_data_map);
+    return instance_data->dispatch_table.GetPhysicalDeviceImageFormatProperties2(physicalDevice, pImageFormatInfo,
+                                                                                 pImageFormatProperties);
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL GetPhysicalDeviceImageFormatProperties2KHR(VkPhysicalDevice physicalDevice,
+                                                                          const VkPhysicalDeviceImageFormatInfo2 *pImageFormatInfo,
+                                                                          VkImageFormatProperties2 *pImageFormatProperties) {
+    instance_layer_data *instance_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), instance_layer_data_map);
+    return instance_data->dispatch_table.GetPhysicalDeviceImageFormatProperties2KHR(physicalDevice, pImageFormatInfo,
+                                                                                    pImageFormatProperties);
 }
 
 VKAPI_ATTR void VKAPI_CALL GetPhysicalDeviceSparseImageFormatProperties2(
@@ -5223,7 +5268,7 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateBufferView(VkDevice device, const VkBufferV
 }
 
 // Access helper functions for external modules
-VkFormatProperties GetFormatProperties(const core_validation::layer_data *device_data, const VkFormat format) {
+VkFormatProperties GetPDFormatProperties(const core_validation::layer_data *device_data, const VkFormat format) {
     VkFormatProperties format_properties;
     instance_layer_data *instance_data =
         GetLayerDataPtr(get_dispatch_key(device_data->instance_data->instance), instance_layer_data_map);
@@ -5231,8 +5276,8 @@ VkFormatProperties GetFormatProperties(const core_validation::layer_data *device
     return format_properties;
 }
 
-VkResult GetImageFormatProperties(core_validation::layer_data *device_data, const VkImageCreateInfo *image_ci,
-                                  VkImageFormatProperties *pImageFormatProperties) {
+VkResult GetPDImageFormatProperties(core_validation::layer_data *device_data, const VkImageCreateInfo *image_ci,
+                                    VkImageFormatProperties *pImageFormatProperties) {
     instance_layer_data *instance_data =
         GetLayerDataPtr(get_dispatch_key(device_data->instance_data->instance), instance_layer_data_map);
     return instance_data->dispatch_table.GetPhysicalDeviceImageFormatProperties(
@@ -5240,9 +5285,9 @@ VkResult GetImageFormatProperties(core_validation::layer_data *device_data, cons
         pImageFormatProperties);
 }
 
-VkResult GetImageFormatProperties2(core_validation::layer_data *device_data,
-                                   const VkPhysicalDeviceImageFormatInfo2 *phys_dev_image_fmt_info,
-                                   VkImageFormatProperties2 *pImageFormatProperties) {
+VkResult GetPDImageFormatProperties2(core_validation::layer_data *device_data,
+                                     const VkPhysicalDeviceImageFormatInfo2 *phys_dev_image_fmt_info,
+                                     VkImageFormatProperties2 *pImageFormatProperties) {
     if (!device_data->instance_data->extensions.vk_khr_get_physical_device_properties_2) return VK_ERROR_EXTENSION_NOT_PRESENT;
     instance_layer_data *instance_data =
         GetLayerDataPtr(get_dispatch_key(device_data->instance_data->instance), instance_layer_data_map);
@@ -14783,6 +14828,8 @@ static const std::unordered_map<std::string, void *> name_to_funcptr_map = {
     {"vkGetImageSparseMemoryRequirements", (void *)GetImageSparseMemoryRequirements},
     {"vkGetImageSparseMemoryRequirements2", (void *)GetImageSparseMemoryRequirements2},
     {"vkGetImageSparseMemoryRequirements2KHR", (void *)GetImageSparseMemoryRequirements2KHR},
+    {"vkGetPhysicalDeviceImageFormatProperties2", (void *)GetPhysicalDeviceImageFormatProperties2},
+    {"vkGetPhysicalDeviceImageFormatProperties2KHR", (void *)GetPhysicalDeviceImageFormatProperties2KHR},
     {"vkGetPhysicalDeviceSparseImageFormatProperties", (void *)GetPhysicalDeviceSparseImageFormatProperties},
     {"vkGetPhysicalDeviceSparseImageFormatProperties2", (void *)GetPhysicalDeviceSparseImageFormatProperties2},
     {"vkGetPhysicalDeviceSparseImageFormatProperties2KHR", (void *)GetPhysicalDeviceSparseImageFormatProperties2KHR},
