@@ -3207,18 +3207,11 @@ std::map<uint64_t, VkImageUsageFlags> ahb_usage_map = {
     //{ None,   VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT },
     //{ None,   VK_IMAGE_CREATE_EXTENDED_USAGE_BIT }
 };
-
 // clang-format on
 
-void PostCallRecordGetAndroidHardwareBufferProperties(layer_data *dev_data,
-                                                      const VkAndroidHardwareBufferPropertiesANDROID *ahb_props) {
-    auto ahb_format_props = lvl_find_in_chain<VkAndroidHardwareBufferFormatPropertiesANDROID>(ahb_props->pNext);
-    if (ahb_format_props) {
-        auto ext_formats = GetAHBExternalFormatsSet(dev_data);
-        ext_formats->insert(ahb_format_props->externalFormat);
-    }
-}
-
+//
+// AHB-extension new APIs
+//
 bool PreCallValidateGetAndroidHardwareBufferProperties(const layer_data *dev_data, const AHardwareBuffer *ahb) {
     bool skip = false;
 
@@ -3231,12 +3224,21 @@ bool PreCallValidateGetAndroidHardwareBufferProperties(const layer_data *dev_dat
     if (0 == (ahb_desc.usage & required_flags)) {
         skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT,
                         HandleToUint64(dev_data->device), "VUID-vkGetAndroidHardwareBufferPropertiesANDROID-buffer-01884",
-                        "vkGetAndroidHardwareBufferPropertiesANDROID: The AHardwareBuffer's AHardwareBuffer_Desc.usage (0x%" PRIx32
+                        "vkGetAndroidHardwareBufferPropertiesANDROID: The AHardwareBuffer's AHardwareBuffer_Desc.usage (0x%" PRIx64
                         ") does not have any AHARDWAREBUFFER_USAGE_GPU_* flags set.",
                         ahb_desc.usage);
     }
 
     return skip;
+}
+
+void PostCallRecordGetAndroidHardwareBufferProperties(layer_data *dev_data,
+                                                      const VkAndroidHardwareBufferPropertiesANDROID *ahb_props) {
+    auto ahb_format_props = lvl_find_in_chain<VkAndroidHardwareBufferFormatPropertiesANDROID>(ahb_props->pNext);
+    if (ahb_format_props) {
+        auto ext_formats = GetAHBExternalFormatsSet(dev_data);
+        ext_formats->insert(ahb_format_props->externalFormat);
+    }
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL GetAndroidHardwareBufferPropertiesANDROID(VkDevice device, const struct AHardwareBuffer *buffer,
@@ -3297,8 +3299,10 @@ VKAPI_ATTR VkResult VKAPI_CALL GetMemoryAndroidHardwareBufferANDROID(VkDevice de
     return dev_data->dispatch_table.GetMemoryAndroidHardwareBufferANDROID(device, pInfo, pBuffer);
 }
 
-// Android-specific validation
-static bool PreCallValidateAllocateMemoryANDROID(layer_data *dev_data, const VkMemoryAllocateInfo *alloc_info) {
+//
+// AHB-specific validation within non-AHB APIs
+//
+static bool ValidateAllocateMemoryANDROID(layer_data *dev_data, const VkMemoryAllocateInfo *alloc_info) {
     bool skip = false;
     auto import_ahb_info = lvl_find_in_chain<VkImportAndroidHardwareBufferInfoANDROID>(alloc_info->pNext);
     auto exp_mem_alloc_info = lvl_find_in_chain<VkExportMemoryAllocateInfo>(alloc_info->pNext);
@@ -3328,7 +3332,8 @@ static bool PreCallValidateAllocateMemoryANDROID(layer_data *dev_data, const VkM
             skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT,
                             HandleToUint64(dev_data->device), "VUID-VkImportAndroidHardwareBufferInfoANDROID-buffer-01881",
                             "vkAllocateMemory: The VkExternalBufferProperties' compatibleHandleTypes ( 0x%" PRIx32
-                            ") does not contain the VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID flag.");
+                            ") does not contain the VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID flag.",
+                            ebp.externalMemoryProperties.compatibleHandleTypes);
         }
 
         // Collect external format info
@@ -3399,7 +3404,7 @@ static bool PreCallValidateAllocateMemoryANDROID(layer_data *dev_data, const VkM
         } while (false);
         if (failed_01873) {
             skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT,
-                            HandleToUint64(dev_data->device), "VUID-VkMemoryAllocateInfo-pNext-01873",
+                            HandleToUint64(dev_data->device), "VUID-VkMemoryAllocateInfo-None-01873",
                             "vkAllocateMemory: VkMemoryAllocateInfo struct with chained VkImportAndroidHardwareBufferInfoANDROID "
                             "struct contains a conflicting size, memoryType, format, or usage.");
         }
@@ -3488,7 +3493,7 @@ static bool PreCallValidateAllocateMemoryANDROID(layer_data *dev_data, const VkM
     return skip;
 }
 
-bool PreCallValidateGetImageMemoryRequirements2ANDROID(layer_data *dev_data, const VkImage image) {
+bool ValidateGetImageMemoryRequirements2ANDROID(layer_data *dev_data, const VkImage image) {
     bool skip = false;
     const debug_report_data *report_data = core_validation::GetReportData(dev_data);
 
@@ -3503,8 +3508,29 @@ bool PreCallValidateGetImageMemoryRequirements2ANDROID(layer_data *dev_data, con
     return skip;
 }
 
-static bool PreCallValidateCreateSamplerYcbcrConversionANDROID(const layer_data *dev_data,
-                                                               const VkSamplerYcbcrConversionCreateInfo *create_info) {
+static bool ValidateGetPhysicalDeviceImageFormatProperties2ANDROID(const debug_report_data *report_data,
+                                                                   const VkPhysicalDeviceImageFormatInfo2 *pImageFormatInfo,
+                                                                   const VkImageFormatProperties2 *pImageFormatProperties) {
+    bool skip = false;
+    const VkAndroidHardwareBufferUsageANDROID *ahb_usage =
+        lvl_find_in_chain<VkAndroidHardwareBufferUsageANDROID>(pImageFormatProperties->pNext);
+    if (nullptr != ahb_usage) {
+        const VkPhysicalDeviceExternalImageFormatInfo *pdeifi =
+            lvl_find_in_chain<VkPhysicalDeviceExternalImageFormatInfo>(pImageFormatInfo->pNext);
+        if ((nullptr == pdeifi) || (VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID != pdeifi->handleType)) {
+            skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+                            "VUID-vkGetPhysicalDeviceImageFormatProperties2-pNext-01868",
+                            "vkGetPhysicalDeviceImageFormatProperties2: pImageFormatProperties includes a chained "
+                            "VkAndroidHardwareBufferUsageANDROID struct, but pImageFormatInfo does not include a chained "
+                            "VkPhysicalDeviceExternalImageFormatInfo struct with handleType "
+                            "VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID.");
+        }
+    }
+    return skip;
+}
+
+static bool ValidateCreateSamplerYcbcrConversionANDROID(const layer_data *dev_data,
+                                                        const VkSamplerYcbcrConversionCreateInfo *create_info) {
     const VkExternalFormatANDROID *ext_format_android = lvl_find_in_chain<VkExternalFormatANDROID>(create_info->pNext);
     if ((nullptr == ext_format_android) && (VK_FORMAT_UNDEFINED != create_info->format)) {
         return log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT,
@@ -3522,29 +3548,39 @@ static bool PreCallValidateCreateSamplerYcbcrConversionANDROID(const layer_data 
     return false;
 }
 
-static void PostCallRecordCreateSamplerYcbcrConversionANDROID(layer_data *dev_data, VkSamplerYcbcrConversionCreateInfo *create_info,
-                                                              VkSamplerYcbcrConversion ycbcr_conversion) {
+static void RecordCreateSamplerYcbcrConversionANDROID(layer_data *dev_data, VkSamplerYcbcrConversionCreateInfo *create_info,
+                                                      VkSamplerYcbcrConversion ycbcr_conversion) {
     const VkExternalFormatANDROID *ext_format_android = lvl_find_in_chain<VkExternalFormatANDROID>(create_info->pNext);
     if (ext_format_android) {
         dev_data->ycbcr_conversion_ahb_fmt_map.emplace(ycbcr_conversion, ext_format_android->externalFormat);
     }
 };
 
-static void PostCallRecordDestroySamplerYcbcrConversionANDROID(layer_data *dev_data, VkSamplerYcbcrConversion ycbcr_conversion) {
+static void RecordDestroySamplerYcbcrConversionANDROID(layer_data *dev_data, VkSamplerYcbcrConversion ycbcr_conversion) {
     dev_data->ycbcr_conversion_ahb_fmt_map.erase(ycbcr_conversion);
 };
 
 #else
 
-static bool PreCallValidateAllocateMemoryANDROID(layer_data *dev_data, const VkMemoryAllocateInfo *alloc_info) { return false; }
-static bool PreCallValidateCreateSamplerYcbcrConversionANDROID(const layer_data *dev_data,
-                                                               const VkSamplerYcbcrConversionCreateInfo *create_info) {
+static bool ValidateAllocateMemoryANDROID(layer_data *dev_data, const VkMemoryAllocateInfo *alloc_info) { return false; }
+
+static bool ValidateGetPhysicalDeviceImageFormatProperties2ANDROID(const debug_report_data *report_data,
+                                                                   const VkPhysicalDeviceImageFormatInfo2 *pImageFormatInfo,
+                                                                   const VkImageFormatProperties2 *pImageFormatProperties) {
     return false;
 }
-bool PreCallValidateGetImageMemoryRequirements2ANDROID(layer_data *dev_data, const VkImage image) { return false; }
-static void PostCallRecordCreateSamplerYcbcrConversionANDROID(layer_data *dev_data, VkSamplerYcbcrConversionCreateInfo *create_info,
-                                                              VkSamplerYcbcrConversion ycbcr_conversion){};
-static void PostCallRecordDestroySamplerYcbcrConversionANDROID(layer_data *dev_data, VkSamplerYcbcrConversion ycbcr_conversion){};
+
+static bool ValidateCreateSamplerYcbcrConversionANDROID(const layer_data *dev_data,
+                                                        const VkSamplerYcbcrConversionCreateInfo *create_info) {
+    return false;
+}
+
+bool ValidateGetImageMemoryRequirements2ANDROID(layer_data *dev_data, const VkImage image) { return false; }
+
+static void RecordCreateSamplerYcbcrConversionANDROID(layer_data *dev_data, VkSamplerYcbcrConversionCreateInfo *create_info,
+                                                      VkSamplerYcbcrConversion ycbcr_conversion){};
+
+static void RecordDestroySamplerYcbcrConversionANDROID(layer_data *dev_data, VkSamplerYcbcrConversion ycbcr_conversion){};
 
 #endif  // VK_USE_PLATFORM_ANDROID_KHR
 
@@ -3558,7 +3594,7 @@ static bool PreCallValidateAllocateMemory(layer_data *dev_data, const VkMemoryAl
     }
 
     if (GetDeviceExtensions(dev_data)->vk_android_external_memory_android_hardware_buffer) {
-        skip |= PreCallValidateAllocateMemoryANDROID(dev_data, alloc_info);
+        skip |= ValidateAllocateMemoryANDROID(dev_data, alloc_info);
     } else {
         if (0 == alloc_info->allocationSize) {
             skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DEVICE_EXT,
@@ -4565,7 +4601,7 @@ VKAPI_ATTR void VKAPI_CALL GetBufferMemoryRequirements2KHR(VkDevice device, cons
 static bool PreCallValidateGetImageMemoryRequirements2(layer_data *dev_data, const VkImageMemoryRequirementsInfo2 *pInfo) {
     bool skip = false;
     if (GetDeviceExtensions(dev_data)->vk_android_external_memory_android_hardware_buffer) {
-        skip |= PreCallValidateGetImageMemoryRequirements2ANDROID(dev_data, pInfo->image);
+        skip |= ValidateGetImageMemoryRequirements2ANDROID(dev_data, pInfo->image);
     }
     return skip;
 }
@@ -4683,21 +4719,41 @@ VKAPI_ATTR void VKAPI_CALL GetPhysicalDeviceSparseImageFormatProperties(VkPhysic
                                                                                pPropertyCount, pProperties);
 }
 
+static bool PreCallValidateGetPhysicalDeviceImageFormatProperties2(const debug_report_data *report_data,
+                                                                   const VkPhysicalDeviceImageFormatInfo2 *pImageFormatInfo,
+                                                                   const VkImageFormatProperties2 *pImageFormatProperties) {
+    // Can't wrap AHB-specific validation in a device extension check here, but no harm
+    bool skip = ValidateGetPhysicalDeviceImageFormatProperties2ANDROID(report_data, pImageFormatInfo, pImageFormatProperties);
+
+    return skip;
+}
+
 VKAPI_ATTR VkResult VKAPI_CALL GetPhysicalDeviceImageFormatProperties2(VkPhysicalDevice physicalDevice,
                                                                        const VkPhysicalDeviceImageFormatInfo2 *pImageFormatInfo,
                                                                        VkImageFormatProperties2 *pImageFormatProperties) {
-    layer_data *dev_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), layer_data_map);
     instance_layer_data *instance_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), instance_layer_data_map);
-    return instance_data->dispatch_table.GetPhysicalDeviceImageFormatProperties2(physicalDevice, pImageFormatInfo,
-                                                                                 pImageFormatProperties);
+    bool skip = PreCallValidateGetPhysicalDeviceImageFormatProperties2(instance_data->report_data, pImageFormatInfo,
+                                                                       pImageFormatProperties);
+    if (skip) {
+        return VK_ERROR_VALIDATION_FAILED_EXT;
+    } else {
+        return instance_data->dispatch_table.GetPhysicalDeviceImageFormatProperties2(physicalDevice, pImageFormatInfo,
+                                                                                     pImageFormatProperties);
+    }
 }
 
 VKAPI_ATTR VkResult VKAPI_CALL GetPhysicalDeviceImageFormatProperties2KHR(VkPhysicalDevice physicalDevice,
                                                                           const VkPhysicalDeviceImageFormatInfo2 *pImageFormatInfo,
                                                                           VkImageFormatProperties2 *pImageFormatProperties) {
     instance_layer_data *instance_data = GetLayerDataPtr(get_dispatch_key(physicalDevice), instance_layer_data_map);
-    return instance_data->dispatch_table.GetPhysicalDeviceImageFormatProperties2KHR(physicalDevice, pImageFormatInfo,
-                                                                                    pImageFormatProperties);
+    bool skip = PreCallValidateGetPhysicalDeviceImageFormatProperties2(instance_data->report_data, pImageFormatInfo,
+                                                                       pImageFormatProperties);
+    if (skip) {
+        return VK_ERROR_VALIDATION_FAILED_EXT;
+    } else {
+        return instance_data->dispatch_table.GetPhysicalDeviceImageFormatProperties2KHR(physicalDevice, pImageFormatInfo,
+                                                                                        pImageFormatProperties);
+    }
 }
 
 VKAPI_ATTR void VKAPI_CALL GetPhysicalDeviceSparseImageFormatProperties2(
@@ -14600,7 +14656,7 @@ static bool PreCallValidateCreateSamplerYcbcrConversion(const layer_data *dev_da
                                                         const VkSamplerYcbcrConversionCreateInfo *create_info) {
     bool skip = false;
     if (GetDeviceExtensions(dev_data)->vk_android_external_memory_android_hardware_buffer) {
-        skip |= PreCallValidateCreateSamplerYcbcrConversionANDROID(dev_data, create_info);
+        skip |= ValidateCreateSamplerYcbcrConversionANDROID(dev_data, create_info);
     } else {  // Not android hardware buffer
         if (VK_FORMAT_UNDEFINED == create_info->format) {
             skip |= log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT,
@@ -14615,13 +14671,13 @@ static bool PreCallValidateCreateSamplerYcbcrConversion(const layer_data *dev_da
 static void PostCallRecordCreateSamplerYcbcrConversion(layer_data *dev_data, VkSamplerYcbcrConversionCreateInfo *create_info,
                                                        VkSamplerYcbcrConversion ycbcr_conversion) {
     if (GetDeviceExtensions(dev_data)->vk_android_external_memory_android_hardware_buffer) {
-        PostCallRecordCreateSamplerYcbcrConversionANDROID(dev_data, create_info, ycbcr_conversion);
+        RecordCreateSamplerYcbcrConversionANDROID(dev_data, create_info, ycbcr_conversion);
     }
 }
 
 static void PostCallRecordDestroySamplerYcbcrConversion(layer_data *dev_data, VkSamplerYcbcrConversion ycbcr_conversion) {
     if (GetDeviceExtensions(dev_data)->vk_android_external_memory_android_hardware_buffer) {
-        PostCallRecordDestroySamplerYcbcrConversionANDROID(dev_data, ycbcr_conversion);
+        RecordDestroySamplerYcbcrConversionANDROID(dev_data, ycbcr_conversion);
     }
 }
 

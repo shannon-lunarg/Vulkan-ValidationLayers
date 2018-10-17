@@ -1008,8 +1008,11 @@ void TransitionFinalSubpassLayouts(layer_data *device_data, GLOBAL_CB_NODE *pCB,
 // Android-specific validation that uses types defined only with VK_USE_PLATFORM_ANDROID_KHR
 // This could also move into a seperate core_validation_android.cpp file... ?
 
-bool PreCallValidateCreateImageANDROID(layer_data *device_data, const debug_report_data *report_data,
-                                       const VkImageCreateInfo *create_info, bool unknown_format) {
+//
+// AHB-specific validation within non-AHB APIs
+//
+bool ValidateCreateImageANDROID(layer_data *device_data, const debug_report_data *report_data, const VkImageCreateInfo *create_info,
+                                bool unknown_format) {
     bool skip = false;
 
     if (unknown_format) {
@@ -1103,14 +1106,14 @@ bool PreCallValidateCreateImageANDROID(layer_data *device_data, const debug_repo
     return skip;
 }
 
-void PostCallRecordCreateImageANDROID(const VkImageCreateInfo *create_info, IMAGE_STATE *is_node) {
+void RecordCreateImageANDROID(const VkImageCreateInfo *create_info, IMAGE_STATE *is_node) {
     const VkExternalMemoryImageCreateInfo *emici = lvl_find_in_chain<VkExternalMemoryImageCreateInfo>(create_info->pNext);
     if (emici && (emici->handleTypes & VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID)) {
         is_node->imported_ahb = true;
     }
 }
 
-bool PreCallValidateCreateImageViewANDROID(layer_data *device_data, const VkImageViewCreateInfo *create_info) {
+bool ValidateCreateImageViewANDROID(layer_data *device_data, const VkImageViewCreateInfo *create_info) {
     bool skip = false;
     const debug_report_data *report_data = core_validation::GetReportData(device_data);
     const VkExternalFormatANDROID *ext_format_android = lvl_find_in_chain<VkExternalFormatANDROID>(create_info->pNext);
@@ -1155,7 +1158,7 @@ bool PreCallValidateCreateImageViewANDROID(layer_data *device_data, const VkImag
     return skip;
 }
 
-bool PreCallValidateGetImageSubresourceLayoutANDROID(layer_data *device_data, const VkImage image) {
+bool ValidateGetImageSubresourceLayoutANDROID(layer_data *device_data, const VkImage image) {
     bool skip = false;
     const debug_report_data *report_data = core_validation::GetReportData(device_data);
 
@@ -1172,16 +1175,16 @@ bool PreCallValidateGetImageSubresourceLayoutANDROID(layer_data *device_data, co
 
 #else
 
-bool PreCallValidateCreateImageANDROID(layer_data *device_data, const debug_report_data *report_data,
-                                       const VkImageCreateInfo *create_info, bool unknown_format) {
+bool ValidateCreateImageANDROID(layer_data *device_data, const debug_report_data *report_data, const VkImageCreateInfo *create_info,
+                                bool unknown_format) {
     return false;
 }
 
-void PostCallRecordCreateImageANDROID(const VkImageCreateInfo *create_info, IMAGE_STATE *is_node) {}
+void RecordCreateImageANDROID(const VkImageCreateInfo *create_info, IMAGE_STATE *is_node) {}
 
-bool PreCallValidateCreateImageViewANDROID(layer_data *device_data, const VkImageViewCreateInfo *create_info) { return false; }
+bool ValidateCreateImageViewANDROID(layer_data *device_data, const VkImageViewCreateInfo *create_info) { return false; }
 
-bool PreCallValidateGetImageSubresourceLayoutANDROID(layer_data *device_data, const VkImage image) { return false; }
+bool ValidateGetImageSubresourceLayoutANDROID(layer_data *device_data, const VkImage image) { return false; }
 
 #endif  // VK_USE_PLATFORM_ANDROID_KHR
 
@@ -1193,7 +1196,7 @@ bool PreCallValidateCreateImage(layer_data *device_data, const VkImageCreateInfo
     bool unknown_format = (VK_SUCCESS != GetPDImageFormatProperties(device_data, pCreateInfo, &format_limits));
 
     if (GetDeviceExtensions(device_data)->vk_android_external_memory_android_hardware_buffer) {
-        skip |= PreCallValidateCreateImageANDROID(device_data, report_data, pCreateInfo, unknown_format);
+        skip |= ValidateCreateImageANDROID(device_data, report_data, pCreateInfo, unknown_format);
         if (unknown_format) return skip;
     } else {  // These checks are omitted or replaced when Android HW Buffer extension is active
         if (pCreateInfo->format == VK_FORMAT_UNDEFINED) {
@@ -1353,7 +1356,7 @@ void PostCallRecordCreateImage(layer_data *device_data, const VkImageCreateInfo 
     image_state.format = pCreateInfo->format;
     IMAGE_STATE *is_node = new IMAGE_STATE(*pImage, pCreateInfo);
     if (GetDeviceExtensions(device_data)->vk_android_external_memory_android_hardware_buffer) {
-        PostCallRecordCreateImageANDROID(pCreateInfo, is_node);
+        RecordCreateImageANDROID(pCreateInfo, is_node);
     }
     GetImageMap(device_data)->insert(std::make_pair(*pImage, std::unique_ptr<IMAGE_STATE>(is_node)));
     ImageSubresourcePair subpair{*pImage, false, VkImageSubresource()};
@@ -4106,7 +4109,7 @@ bool PreCallValidateCreateImageView(layer_data *device_data, const VkImageViewCr
 
         // External format checks needed when VK_ANDROID_external_memory_android_hardware_buffer enabled
         if (GetDeviceExtensions(device_data)->vk_android_external_memory_android_hardware_buffer) {
-            skip |= PreCallValidateCreateImageViewANDROID(device_data, create_info);
+            skip |= ValidateCreateImageViewANDROID(device_data, create_info);
         }
 
         VkFormatProperties format_properties = GetPDFormatProperties(device_data, view_format);
@@ -4845,7 +4848,7 @@ bool PreCallValidateGetImageSubresourceLayout(layer_data *device_data, VkImage i
     }
 
     if (GetDeviceExtensions(device_data)->vk_android_external_memory_android_hardware_buffer) {
-        skip |= PreCallValidateGetImageSubresourceLayoutANDROID(device_data, image);
+        skip |= ValidateGetImageSubresourceLayoutANDROID(device_data, image);
     }
 
     return skip;
