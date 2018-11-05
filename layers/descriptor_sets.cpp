@@ -934,6 +934,15 @@ uint32_t cvdescriptorset::DescriptorSet::GetStorageUpdates(const std::map<uint32
 void cvdescriptorset::DescriptorSet::InvalidateBoundCmdBuffers() {
     core_validation::InvalidateCommandBuffers(device_data_, cb_bindings, {HandleToUint64(set_), kVulkanObjectTypeDescriptorSet});
 }
+
+// Loop through the write updates to do for a push descriptor set, ignoring dstSet
+void cvdescriptorset::DescriptorSet::PerformPushDescriptorsUpdate(uint32_t write_count, const VkWriteDescriptorSet *p_wds) {
+    assert(IsPushDescriptor());
+    for (uint32_t i = 0; i < write_count; i++) {
+        PerformWriteUpdate(&p_wds[i]);
+    }
+}
+
 // Perform write update in given update struct
 void cvdescriptorset::DescriptorSet::PerformWriteUpdate(const VkWriteDescriptorSet *update) {
     // Perform update on a per-binding basis as consecutive updates roll over to next binding
@@ -1810,6 +1819,23 @@ std::string cvdescriptorset::DescriptorSet::StringifySetAndLayout() const {
     }
     return out;
 };
+
+// Loop through the write updates to validate for a push descriptor set, ignoring dstSet
+bool cvdescriptorset::DescriptorSet::ValidatePushDescriptorsUpdate(const debug_report_data *report_data, uint32_t write_count,
+                                                                   const VkWriteDescriptorSet *p_wds, const char *func_name) {
+    assert(IsPushDescriptor());
+    bool skip = false;
+    for (uint32_t i = 0; i < write_count; i++) {
+        std::string error_code;
+        std::string error_str;
+        if (!ValidateWriteUpdate(report_data, &p_wds[i], func_name, &error_code, &error_str)) {
+            skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT_EXT,
+                            HandleToUint64(p_layout_->GetDescriptorSetLayout()), error_code, "%s failed update validation: %s.",
+                            func_name, error_str.c_str());
+        }
+    }
+    return skip;
+}
 
 // Validate the state for a given write update but don't actually perform the update
 //  If an error would occur for this update, return false and fill in details in error_msg string

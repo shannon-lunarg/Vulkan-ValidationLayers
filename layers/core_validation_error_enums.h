@@ -228,6 +228,12 @@ static const char DECORATE_UNUSED *kVUID_Core_Swapchain_PriorCount = "UNASSIGNED
 static const char DECORATE_UNUSED *kVUID_Core_Image_InvalidFormatLimitsViolation = "UNASSIGNED-CoreValidation-Image-InvalidFormatLimitsViolation";
 static const char DECORATE_UNUSED *kVUID_Core_Image_ZeroAreaSubregion = "UNASSIGNED-CoreValidation-Image-ZeroAreaSubregion";
 
+static const char DECORATE_UNUSED *kVUID_Core_PushDescriptorUpdate_Tenplate_CreateFlags = "UNASSIGNED-CoreValidation-vkCmdPushDescriptorSetWithTemplateKHR-descriptorUpdateTemplate-flags";
+static const char DECORATE_UNUSED *kVUID_Core_PushDescriptorUpdate_Tenplate_DSLayoutInvalid = "UNASSIGNED-CoreValidation-vkCmdPushDescriptorSetWithTemplateKHR-descriptorUpdateTemplate-descriptorSetLayout-001";
+static const char DECORATE_UNUSED *kVUID_Core_PushDescriptorUpdate_Tenplate_DSLayoutIncompat = "UNASSIGNED-CoreValidation-vkCmdPushDescriptorSetWithTemplateKHR-descriptorUpdateTemplate-descriptorSetLayout-002";
+static const char DECORATE_UNUSED *kVUID_Core_PushDescriptorUpdate_Tenplate_SetMismatched = "UNASSIGNED-CoreValidation-vkCmdPushDescriptorSetWithTemplateKHR-set";
+static const char DECORATE_UNUSED *kVUID_Core_PushDescriptorUpdate_Tenplate_LayoutMismatched = "UNASSIGNED-CoreValidation-vkCmdPushDescriptorSetWithTemplateKHR-layout";
+
 // clang-format on
 
 #undef DECORATE_UNUSED

@@ -512,6 +512,11 @@ class DescriptorSet : public BASE_NODE {
 
     std::string StringifySetAndLayout() const;
     // Descriptor Update functions. These functions validate state and perform update separately
+    // Validate contents of a push descriptor update
+    bool ValidatePushDescriptorsUpdate(const debug_report_data *report_data, uint32_t write_count,
+                                       const VkWriteDescriptorSet *p_wds, const char *func_name);
+    // Perform a push updates whose contents were just validated using ValidatePushDescriptorsUpdate
+    void PerformPushDescriptorsUpdate(uint32_t write_count, const VkWriteDescriptorSet *p_wds);
     // Validate contents of a WriteUpdate
     bool ValidateWriteUpdate(const debug_report_data *, const VkWriteDescriptorSet *, const char *, std::string *, std::string *);
     // Perform a WriteUpdate whose contents were just validated using ValidateWriteUpdate
