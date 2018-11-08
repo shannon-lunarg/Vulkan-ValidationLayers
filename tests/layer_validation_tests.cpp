@@ -458,7 +458,7 @@ class VkLayerTest : public VkRenderFramework {
         m_instance_layer_names.push_back("VK_LAYER_LUNARG_parameter_validation");
         m_instance_layer_names.push_back("VK_LAYER_LUNARG_object_tracker");
         m_instance_layer_names.push_back("VK_LAYER_LUNARG_core_validation");
-        m_instance_layer_names.push_back("VK_LAYER_GOOGLE_unique_objects");
+        //m_instance_layer_names.push_back("VK_LAYER_GOOGLE_unique_objects");
         if (VkTestFramework::m_devsim_layer) {
             if (InstanceLayerSupported("VK_LAYER_LUNARG_device_simulation")) {
                 m_instance_layer_names.push_back("VK_LAYER_LUNARG_device_simulation");

@@ -181,10 +181,12 @@ GenerateFromVkXml(object_tracker_generator.py object_tracker.cpp)
 GenerateFromVkXml(object_tracker_generator.py object_tracker.h)
 GenerateFromVkXml(uber_layer_generator.py uber_layer.cpp)
 GenerateFromVkXml(uber_layer_generator.py uber_layer.h)
+GenerateFromVkXml(uber_layer_dispatch_generator.py uber_layer_dispatch.h)
+GenerateFromVkXml(uber_layer_dispatch_generator.py uber_layer_dispatch.cpp)
 
 if(BUILD_LAYERS)
     AddVkLayer(core_validation core_validation.cpp convert_to_renderpass2.cpp descriptor_sets.cpp buffer_validation.cpp shader_validation.cpp xxhash.c)
-    AddVkLayer(object_lifetimes object_tracker.cpp object_tracker.h object_tracker_utils.cpp uber_layer.cpp uber_layer.h)
+    AddVkLayer(object_lifetimes object_tracker.cpp object_tracker.h object_tracker_utils.cpp uber_layer.cpp uber_layer.h uber_layer_dispatch.cpp uber_layer_dispatch.h)
     AddVkLayer(threading threading.cpp thread_check.h)
     AddVkLayer(unique_objects unique_objects.cpp unique_objects_wrappers.h)
     AddVkLayer(parameter_validation
