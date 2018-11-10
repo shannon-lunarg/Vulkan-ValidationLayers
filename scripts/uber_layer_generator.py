@@ -158,6 +158,15 @@ class UberLayerOutputGenerator(OutputGenerator):
 extern uint64_t global_unique_id;
 extern std::unordered_map<uint64_t, uint64_t> unique_id_mapping;
 
+// TODO: This variable controls handle wrapping -- in the future it should be hooked
+//       up to the new VALIDATION_FEATURES extension. Temporarily, control with a compile-time flag.
+#if defined(UBER_LAYER_WRAP_HANDLES)
+#define WRAP_HANDLES true
+#else
+#define WRAP_HANDLES false
+#endif
+const bool wrap_handles = WRAP_HANDLES;
+
 """
 
     inline_custom_header_class_definition = """
@@ -415,9 +424,11 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateInstance(const VkInstanceCreateInfo *pCreat
 
     // Create temporary dispatch vector for pre-calls until instance is created
     std::vector<ValidationObject*> local_object_dispatch;
+#if BUILD_OBJECT_TRACKER
     auto object_tracker = new ObjectLifetimes;
     local_object_dispatch.emplace_back(object_tracker);
     object_tracker->container_type = LayerObjectTypeObjectTracker;
+#endif
 
 
     // Init dispatch array and call registration functions
@@ -441,8 +452,13 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateInstance(const VkInstanceCreateInfo *pCreat
                                                          pCreateInfo->ppEnabledExtensionNames);
     framework->api_version = framework->instance_extensions.InitFromInstanceCreateInfo(
         (pCreateInfo->pApplicationInfo ? pCreateInfo->pApplicationInfo->apiVersion : VK_API_VERSION_1_0), pCreateInfo);
+#if BUILD_OBJECT_TRACKER
     layer_debug_report_actions(framework->report_data, framework->logging_callback, pAllocator, "lunarg_object_tracker");
     layer_debug_messenger_actions(framework->report_data, framework->logging_messenger, pAllocator, "lunarg_object_tracker");
+#else
+    layer_debug_report_actions(framework->report_data, framework->logging_callback, pAllocator, "lunarg_unique_objects");
+    layer_debug_messenger_actions(framework->report_data, framework->logging_messenger, pAllocator, "lunarg_unique_objects");
+#endif
 
     for (auto intercept : framework->object_dispatch) {
         intercept->PostCallRecordCreateInstance(pCreateInfo, pAllocator, pInstance);
@@ -524,6 +540,7 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateDevice(VkPhysicalDevice gpu, const VkDevice
     device_interceptor->report_data = layer_debug_utils_create_device(instance_interceptor->report_data, *pDevice);
     device_interceptor->api_version = instance_interceptor->api_version;
 
+#if BUILD_OBJECT_TRACKER
     // Create child layer objects for this key and add to dispatch vector
     auto object_tracker = new ObjectLifetimes;
     // TODO:  Initialize child objects with parent info thru constuctor taking a parent object
@@ -533,6 +550,7 @@ VKAPI_ATTR VkResult VKAPI_CALL CreateDevice(VkPhysicalDevice gpu, const VkDevice
     object_tracker->report_data = device_interceptor->report_data;
     object_tracker->device_dispatch_table = device_interceptor->device_dispatch_table;
     device_interceptor->object_dispatch.emplace_back(object_tracker);
+#endif
 
     for (auto intercept : instance_interceptor->object_dispatch) {
         intercept->PostCallRecordCreateDevice(gpu, pCreateInfo, pAllocator, pDevice);

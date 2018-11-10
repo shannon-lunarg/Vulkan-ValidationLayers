@@ -92,6 +92,8 @@ set(TARGET_NAMES
     VkLayer_standard_validation
     VkLayer_threading)
 
+
+
 # Install the layer json files
 if(WIN32)
     if(CMAKE_GENERATOR MATCHES "^Visual Studio.*")
@@ -113,6 +115,9 @@ endif()
 # System-specific macros to create a library target.
 if(WIN32)
     macro(AddVkLayer target)
+        if(TARGET "VkLayer_object_lifetimes")
+            target_compile_definitions(VkLayer_object_lifetimes PUBLIC BUILD_OBJECT_TRACKER)
+        endif()
         file(TO_NATIVE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/VkLayer_${target}.def DEF_FILE)
         add_custom_target(copy-${target}-def-file ALL
                           COMMAND ${CMAKE_COMMAND} -E copy_if_different ${DEF_FILE} VkLayer_${target}.def
@@ -186,6 +191,7 @@ GenerateFromVkXml(uber_layer_dispatch_generator.py uber_layer_dispatch.cpp)
 
 if(BUILD_LAYERS)
     AddVkLayer(core_validation core_validation.cpp convert_to_renderpass2.cpp descriptor_sets.cpp buffer_validation.cpp shader_validation.cpp xxhash.c)
+
     AddVkLayer(object_lifetimes object_tracker.cpp object_tracker.h object_tracker_utils.cpp uber_layer.cpp uber_layer.h uber_layer_dispatch.cpp uber_layer_dispatch.h)
     AddVkLayer(threading threading.cpp thread_check.h)
     AddVkLayer(unique_objects unique_objects.cpp unique_objects_wrappers.h)

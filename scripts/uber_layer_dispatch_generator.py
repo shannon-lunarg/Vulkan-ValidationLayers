@@ -990,7 +990,7 @@ VkResult DispatchSetDebugUtilsObjectNameEXT(ValidationObject *layer_data,
             self.newline()
             write('std::mutex dispatch_lock;', file=self.outFile)
             self.newline()
-            write('extern const bool wrap_handles = TRUE;' file=self.outFile)
+            write('extern const bool wrap_handles;', file=self.outFile)
             self.newline()
             write('struct GenericHeader {\n', file=self.outFile)
             write('    VkStructureType sType;\n', file=self.outFile)
