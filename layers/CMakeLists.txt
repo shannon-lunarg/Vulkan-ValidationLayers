@@ -118,6 +118,9 @@ if(WIN32)
         if(TARGET "VkLayer_object_lifetimes")
             target_compile_definitions(VkLayer_object_lifetimes PUBLIC BUILD_OBJECT_TRACKER)
         endif()
+        if(TARGET "VkLayer_unique_objects")
+            target_compile_definitions(VkLayer_unique_objects PUBLIC UBER_LAYER_WRAP_HANDLES)
+        endif()
         file(TO_NATIVE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/VkLayer_${target}.def DEF_FILE)
         add_custom_target(copy-${target}-def-file ALL
                           COMMAND ${CMAKE_COMMAND} -E copy_if_different ${DEF_FILE} VkLayer_${target}.def
@@ -191,10 +194,10 @@ GenerateFromVkXml(uber_layer_dispatch_generator.py uber_layer_dispatch.cpp)
 
 if(BUILD_LAYERS)
     AddVkLayer(core_validation core_validation.cpp convert_to_renderpass2.cpp descriptor_sets.cpp buffer_validation.cpp shader_validation.cpp xxhash.c)
-
     AddVkLayer(object_lifetimes object_tracker.cpp object_tracker.h object_tracker_utils.cpp uber_layer.cpp uber_layer.h uber_layer_dispatch.cpp uber_layer_dispatch.h)
     AddVkLayer(threading threading.cpp thread_check.h)
-    AddVkLayer(unique_objects unique_objects.cpp unique_objects_wrappers.h)
+    #AddVkLayer(unique_objects unique_objects.cpp unique_objects_wrappers.h)
+    AddVkLayer(unique_objects uber_layer.cpp uber_layer_dispatch.cpp uber_layer.h uber_layer_dispatch.h)
     AddVkLayer(parameter_validation
                parameter_validation.cpp
                parameter_validation_utils.cpp
